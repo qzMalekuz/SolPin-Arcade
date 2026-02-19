@@ -11,10 +11,15 @@ import { DEVNET_RPC } from './connection';
 
 // ------------------------------------------------------------------
 // Phantom deep-link integration for Expo Go
+// Uses UNIVERSAL LINKS (https://phantom.app/ul/...) instead of
+// phantom:// custom scheme, because Expo Go cannot declare Android
+// <queries> intents — canOpenURL('phantom://') always returns false.
+//
 // Docs: https://docs.phantom.app/phantom-deeplinks/provider/connect
 // ------------------------------------------------------------------
 
-const PHANTOM_SCHEME = 'phantom://';
+// Universal link base — works without manifest declaration
+const PHANTOM_BASE = 'https://phantom.app/ul/';
 const PHANTOM_CONNECT = 'v1/connect';
 const PHANTOM_SIGN_AND_SEND = 'v1/signAndSendTransaction';
 const PHANTOM_SIGN_TX = 'v1/signTransaction';
@@ -33,10 +38,20 @@ export const getDappKeyPair = (): nacl.BoxKeyPair => {
     return _dappKeyPair;
 };
 
-/** Redirect base URL that Phantom will callback to */
+/** Store the Phantom encryption public key received during connect */
+let _phantomEncryptionPubKey: Uint8Array | null = null;
+
+export const setPhantomEncryptionPubKey = (key: Uint8Array) => {
+    _phantomEncryptionPubKey = key;
+};
+
+export const getPhantomEncryptionPubKey = (): Uint8Array | null => {
+    return _phantomEncryptionPubKey;
+};
+
+/** Redirect URI that Phantom will callback to */
 const getRedirectUri = (path: string): string => {
-    const base = Linking.createURL(path);
-    return base;
+    return Linking.createURL(path);
 };
 
 // ------------------------------------------------------------------
@@ -49,7 +64,7 @@ export interface PhantomConnectResult {
 
 /**
  * Opens Phantom to request wallet connection.
- * After approval Phantom redirects back with encrypted payload.
+ * Uses universal link (https://phantom.app/ul/v1/connect).
  */
 export const buildConnectUrl = (): string => {
     const kp = getDappKeyPair();
@@ -59,7 +74,7 @@ export const buildConnectUrl = (): string => {
         app_url: 'https://solpin.arcade',
         redirect_link: getRedirectUri('onConnect'),
     });
-    return `${PHANTOM_SCHEME}${PHANTOM_CONNECT}?${params.toString()}`;
+    return `${PHANTOM_BASE}${PHANTOM_CONNECT}?${params.toString()}`;
 };
 
 /**
@@ -80,6 +95,9 @@ export const parseConnectResponse = (
         const phantomPubKey = bs58.decode(params.phantom_encryption_public_key);
         const nonce = bs58.decode(params.nonce);
         const encryptedData = bs58.decode(params.data);
+
+        // Store the Phantom encryption public key for later use
+        setPhantomEncryptionPubKey(phantomPubKey);
 
         const kp = getDappKeyPair();
         const decrypted = nacl.box.open(encryptedData, nonce, phantomPubKey, kp.secretKey);
@@ -112,8 +130,6 @@ export const buildSignAndSendUrl = (
     session: string,
 ): string => {
     const kp = getDappKeyPair();
-    // We need the phantom public key from the session - store it during connect
-    // For now, serialize the transaction
     const serialized = transaction.serialize({
         requireAllSignatures: false,
     });
@@ -128,16 +144,14 @@ export const buildSignAndSendUrl = (
     const params = new URLSearchParams({
         dapp_encryption_public_key: bs58.encode(kp.publicKey),
         redirect_link: getRedirectUri('onSignAndSend'),
-        // For simplicity in dev, send unencrypted payload:
         payload: bs58.encode(Buffer.from(payloadStr)),
     });
 
-    return `${PHANTOM_SCHEME}${PHANTOM_SIGN_AND_SEND}?${params.toString()}`;
+    return `${PHANTOM_BASE}${PHANTOM_SIGN_AND_SEND}?${params.toString()}`;
 };
 
 /**
- * Simplified: Build a URL that transfers SOL as a basic stake representation.
- * In production, this would call the Anchor escrow program.
+ * Build URL for sign transaction (without sending).
  */
 export const buildSignTransactionUrl = (
     transaction: Transaction,
@@ -155,7 +169,7 @@ export const buildSignTransactionUrl = (
         session,
     });
 
-    return `${PHANTOM_SCHEME}${PHANTOM_SIGN_TX}?${params.toString()}`;
+    return `${PHANTOM_BASE}${PHANTOM_SIGN_TX}?${params.toString()}`;
 };
 
 /**
@@ -189,19 +203,25 @@ export const buildDisconnectUrl = (session: string): string => {
         redirect_link: getRedirectUri('onDisconnect'),
         session,
     });
-    return `${PHANTOM_SCHEME}${PHANTOM_DISCONNECT}?${params.toString()}`;
+    return `${PHANTOM_BASE}${PHANTOM_DISCONNECT}?${params.toString()}`;
 };
 
 // ------------------------------------------------------------------
 // HELPERS
 // ------------------------------------------------------------------
+
+/**
+ * Open a Phantom deep link.
+ * Uses Linking.openURL directly (no canOpenURL check, which fails in Expo Go).
+ * If Phantom isn't installed, the universal link falls back to the Phantom
+ * website/Play Store page automatically.
+ */
 export const openPhantomLink = async (url: string): Promise<void> => {
-    const supported = await Linking.canOpenURL(url);
-    if (supported) {
+    try {
         await Linking.openURL(url);
-    } else {
+    } catch (err) {
         throw new Error(
-            'Phantom wallet is not installed. Please install it from the Play Store.'
+            'Could not open Phantom wallet. Please make sure it is installed.'
         );
     }
 };
