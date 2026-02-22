@@ -1,36 +1,36 @@
-// Theme constants for SolPin Arcade - Retro neon sci-fi
+// Theme constants — Black & White Monotone
 
 export const Colors = {
   // Backgrounds
-  bg: '#0a0a1a',
-  bgCard: '#111128',
-  bgOverlay: 'rgba(10, 10, 26, 0.85)',
+  bg: '#0a0a0a',
+  bgCard: '#141414',
+  bgOverlay: 'rgba(10, 10, 10, 0.92)',
 
-  // Neon accent palette
-  neonBlue: '#00d4ff',
-  neonPurple: '#b44aff',
-  neonPink: '#ff2aff',
-  neonGreen: '#00ff88',
-  neonYellow: '#ffe14d',
-  neonOrange: '#ff6b35',
+  // Monotone accent palette
+  neonBlue: '#cccccc',
+  neonPurple: '#aaaaaa',
+  neonPink: '#999999',
+  neonGreen: '#dddddd',
+  neonYellow: '#eeeeee',
+  neonOrange: '#bbbbbb',
 
   // Semantic
-  primary: '#00d4ff',
-  secondary: '#b44aff',
-  success: '#00ff88',
-  danger: '#ff4444',
-  warning: '#ffe14d',
+  primary: '#ffffff',
+  secondary: '#aaaaaa',
+  success: '#dddddd',
+  danger: '#888888',
+  warning: '#cccccc',
 
   // Text
-  textPrimary: '#e8e8ff',
-  textSecondary: '#8888aa',
-  textMuted: '#555577',
+  textPrimary: '#f0f0f0',
+  textSecondary: '#999999',
+  textMuted: '#555555',
 
   // Borders & glow
-  border: '#222244',
-  glowBlue: 'rgba(0, 212, 255, 0.4)',
-  glowPurple: 'rgba(180, 74, 255, 0.4)',
-  glowPink: 'rgba(255, 42, 255, 0.3)',
+  border: '#222222',
+  glowBlue: 'rgba(255, 255, 255, 0.15)',
+  glowPurple: 'rgba(200, 200, 200, 0.12)',
+  glowPink: 'rgba(180, 180, 180, 0.10)',
 } as const;
 
 export const Spacing = {
