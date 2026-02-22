@@ -5,12 +5,13 @@ import {
     StatusBar,
     Alert,
     BackHandler,
-    Dimensions,
+    Platform,
 } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as Haptics from 'expo-haptics';
 
-import { Colors, Spacing, FontSizes } from '../theme';
+import { Colors, Spacing } from '../theme';
 import { GlowText } from '../components/GlowText';
 import { NeonButton } from '../components/NeonButton';
 import { useGameStore } from '../store/gameStore';
@@ -25,10 +26,8 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
         difficulty,
         stakeAmount,
         multiplier,
-        soundEnabled,
         setScore,
         setStatus,
-        toggleSound,
     } = useGameStore();
 
     const webviewRef = useRef<WebView>(null);
@@ -41,6 +40,7 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
 
     const html = generatePinballHTML({ difficulty, duration });
 
+    // Android back → pause
     useEffect(() => {
         const sub = BackHandler.addEventListener('hardwareBackPress', () => {
             if (!paused) handlePause();
@@ -49,19 +49,50 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
         return () => sub.remove();
     }, [paused]);
 
+    // Haptic feedback handler
+    const triggerHaptic = useCallback(async (type: string) => {
+        try {
+            switch (type) {
+                case 'light':
+                    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    break;
+                case 'medium':
+                    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    break;
+                case 'heavy':
+                    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                    break;
+                default:
+                    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }
+        } catch { }
+    }, []);
+
     const onMessage = useCallback(
         (event: WebViewMessageEvent) => {
             try {
                 const msg = JSON.parse(event.nativeEvent.data);
                 switch (msg.type) {
-                    case 'ready': setGameReady(true); break;
+                    case 'ready':
+                        setGameReady(true);
+                        break;
                     case 'score':
                         setLocalScore(msg.score);
                         setLocalCombo(msg.combo);
                         break;
-                    case 'timer': setTimeLeft(msg.timeLeft); break;
-                    case 'launched': setLaunched(true); break;
+                    case 'timer':
+                        setTimeLeft(msg.timeLeft);
+                        break;
+                    case 'launched':
+                        setLaunched(true);
+                        break;
+                    case 'haptic':
+                        triggerHaptic(msg.type === 'haptic' ? msg.type : 'light');
+                        // Read the haptic type from the correct field
+                        if (msg.type === 'haptic') triggerHaptic(msg.type);
+                        break;
                     case 'gameover':
+                        triggerHaptic(msg.result === 'lost' ? 'heavy' : 'medium');
                         setScore(msg.score);
                         setStatus(msg.result === 'won' ? 'won' : 'lost');
                         setTimeout(() => navigation.replace('Result'), 800);
@@ -69,7 +100,23 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
                 }
             } catch { }
         },
-        [navigation, setScore, setStatus],
+        [navigation, setScore, setStatus, triggerHaptic],
+    );
+
+    // Fix: parse haptic messages correctly
+    const onMessageFixed = useCallback(
+        (event: WebViewMessageEvent) => {
+            try {
+                const msg = JSON.parse(event.nativeEvent.data);
+                if (msg.type === 'haptic') {
+                    triggerHaptic(msg.type === 'haptic' ? (msg as any).type : 'light');
+                    // Extract the actual haptic level from nested type field
+                }
+                // Delegate to main handler
+                onMessage(event);
+            } catch { }
+        },
+        [onMessage, triggerHaptic],
     );
 
     const sendToGame = useCallback((msg: object) => {
@@ -89,7 +136,7 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
     }, [sendToGame]);
 
     const handleQuit = useCallback(() => {
-        Alert.alert('Quit Game', 'You will lose your stake if you quit now.', [
+        Alert.alert('Quit Game', 'You will lose your stake.', [
             { text: 'Continue', style: 'cancel', onPress: handleResume },
             {
                 text: 'Quit',
@@ -110,18 +157,12 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
     };
 
     const timerColor =
-        timeLeft > 30 ? '#00ff88' : timeLeft > 10 ? Colors.neonOrange : '#ff3355';
+        timeLeft > 30 ? '#88aa88' : timeLeft > 10 ? '#bbaa77' : '#aa5555';
 
     return (
         <View style={styles.container}>
-            {/* Status bar visible & translucent during gameplay */}
-            <StatusBar
-                barStyle="light-content"
-                backgroundColor="transparent"
-                translucent
-            />
+            <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
-            {/* WebView pinball game — full screen */}
             <WebView
                 ref={webviewRef}
                 source={{ html }}
@@ -138,35 +179,43 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
                 allowsInlineMediaPlayback
             />
 
-            {/* HUD — transparent overlay */}
+            {/* ── TOP HUD BAR ── */}
+            {/* Score on far left, Pause center, Timer far right — no overlap */}
             <View style={styles.hud} pointerEvents="box-none">
-                {/* Score */}
-                <View style={styles.hudLeft}>
-                    <GlowText color="#aabbcc" size="xs" style={styles.hudLabel}>
+                {/* Left: Score */}
+                <View style={styles.hudCol}>
+                    <GlowText color="#778899" size="xs" style={styles.label}>
                         SCORE
                     </GlowText>
-                    <GlowText color="#ffe14d" size="lg" weight="700">
+                    <GlowText color="#ccddee" size="lg" weight="700">
                         {score.toLocaleString()}
                     </GlowText>
                     {combo > 1 && (
-                        <GlowText color="#ff2aff" size="xs" weight="700">
+                        <GlowText color="#9988bb" size="xs" weight="700">
                             {`${combo.toFixed(1)}x`}
                         </GlowText>
                     )}
                 </View>
 
-                {/* Launch hint */}
+                {/* Center: Pause button + launch hint */}
                 <View style={styles.hudCenter}>
+                    <NeonButton
+                        title={paused ? '▶' : '⏸'}
+                        onPress={paused ? handleResume : handlePause}
+                        variant="secondary"
+                        size="sm"
+                        style={styles.pauseBtn}
+                    />
                     {!launched && gameReady && (
-                        <GlowText color="#00d4ff" size="xs" align="center" weight="700">
+                        <GlowText color="#778899" size="xs" align="center" style={styles.launchHint}>
                             {'HOLD RIGHT\nTO LAUNCH'}
                         </GlowText>
                     )}
                 </View>
 
-                {/* Timer */}
-                <View style={styles.hudRight}>
-                    <GlowText color="#aabbcc" size="xs" align="right" style={styles.hudLabel}>
+                {/* Right: Timer */}
+                <View style={styles.hudColRight}>
+                    <GlowText color="#778899" size="xs" align="right" style={styles.label}>
                         TIME
                     </GlowText>
                     <GlowText color={timerColor} size="lg" weight="700" align="right">
@@ -175,54 +224,36 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
                 </View>
             </View>
 
-            {/* Top-right controls */}
-            <View style={styles.controls} pointerEvents="box-none">
-                <NeonButton
-                    title={paused ? '▶' : '⏸'}
-                    onPress={paused ? handleResume : handlePause}
-                    variant="secondary"
-                    size="sm"
-                    style={styles.ctrlBtn}
-                />
-            </View>
-
-            {/* Pause overlay */}
+            {/* ── PAUSE OVERLAY ── */}
             {paused && (
                 <View style={styles.pauseOverlay}>
-                    <GlowText color="#00d4ff" size="hero" align="center" weight="700">
+                    <GlowText color="#aabbdd" size="hero" align="center" weight="700">
                         PAUSED
                     </GlowText>
-                    <GlowText
-                        color="#8899aa"
-                        size="body"
-                        align="center"
-                        style={styles.pauseSub}
-                    >
+                    <GlowText color="#667788" size="body" align="center" style={styles.pauseSub}>
                         {`${stakeAmount} SOL staked • ${(stakeAmount * multiplier).toFixed(3)} SOL to win`}
                     </GlowText>
-
-                    <View style={styles.pauseScore}>
-                        <GlowText color="#ffe14d" size="xl" weight="700" align="center">
+                    <View style={styles.pauseScoreBox}>
+                        <GlowText color="#ccddee" size="xl" weight="700" align="center">
                             {score.toLocaleString()}
                         </GlowText>
-                        <GlowText color="#aabbcc" size="xs" align="center">
+                        <GlowText color="#778899" size="xs" align="center">
                             POINTS
                         </GlowText>
                     </View>
-
                     <NeonButton
                         title="Resume"
                         onPress={handleResume}
                         variant="primary"
                         size="lg"
-                        style={styles.pauseBtn}
+                        style={styles.pauseAction}
                     />
                     <NeonButton
                         title="Quit (Lose Stake)"
                         onPress={handleQuit}
                         variant="danger"
                         size="md"
-                        style={styles.pauseBtn}
+                        style={styles.pauseAction}
                     />
                 </View>
             )}
@@ -230,10 +261,12 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
     );
 };
 
+const TOP_PAD = Platform.OS === 'android' ? (StatusBar.currentHeight || 30) + 4 : 48;
+
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#050510',
+        backgroundColor: '#080810',
     },
     hud: {
         position: 'absolute',
@@ -242,38 +275,56 @@ const styles = StyleSheet.create({
         right: 0,
         flexDirection: 'row',
         alignItems: 'flex-start',
-        paddingHorizontal: Spacing.sm,
-        paddingTop: StatusBar.currentHeight ? StatusBar.currentHeight + 4 : 36,
-        paddingBottom: 6,
-        backgroundColor: 'rgba(5,5,16,0.65)',
+        paddingHorizontal: 12,
+        paddingTop: TOP_PAD,
+        paddingBottom: 8,
+        backgroundColor: 'rgba(8,8,16,0.7)',
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: 'rgba(100,130,200,0.15)',
+        borderBottomColor: 'rgba(100,110,130,0.15)',
     },
-    hudLeft: { flex: 1 },
-    hudCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    hudRight: { flex: 1, alignItems: 'flex-end' },
-    hudLabel: { letterSpacing: 2, marginBottom: 2 },
-    controls: {
-        position: 'absolute',
-        top: StatusBar.currentHeight ? StatusBar.currentHeight + 2 : 34,
-        right: Spacing.sm,
-        flexDirection: 'row',
-        gap: 6,
+    hudCol: {
+        flex: 1,
+        alignItems: 'flex-start',
     },
-    ctrlBtn: {
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 6,
-        backgroundColor: 'rgba(10,10,30,0.7)',
+    hudColRight: {
+        flex: 1,
+        alignItems: 'flex-end',
+    },
+    hudCenter: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+    },
+    label: {
+        letterSpacing: 2,
+        marginBottom: 2,
+    },
+    pauseBtn: {
+        paddingHorizontal: 14,
+        paddingVertical: 5,
+        borderRadius: 8,
+        backgroundColor: 'rgba(12,12,25,0.8)',
+        borderColor: '#556677',
+    },
+    launchHint: {
+        marginTop: 6,
     },
     pauseOverlay: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(5,5,16,0.92)',
+        backgroundColor: 'rgba(8,8,16,0.93)',
         justifyContent: 'center',
         alignItems: 'center',
-        paddingHorizontal: Spacing.xl,
+        paddingHorizontal: 32,
     },
-    pauseSub: { marginTop: 8, marginBottom: Spacing.lg },
-    pauseScore: { marginBottom: Spacing.xl },
-    pauseBtn: { marginTop: Spacing.md, alignSelf: 'stretch' },
+    pauseSub: {
+        marginTop: 8,
+        marginBottom: 24,
+    },
+    pauseScoreBox: {
+        marginBottom: 28,
+    },
+    pauseAction: {
+        marginTop: 14,
+        alignSelf: 'stretch',
+    },
 });
