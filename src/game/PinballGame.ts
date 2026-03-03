@@ -57,81 +57,56 @@ const orbs=Array.from({length:8},()=>({
   r:15+Math.random()*25,sp:.12+Math.random()*.35,ph:Math.random()*T2,dr:Math.random()-.5
 }));
 
-// ──── WALLS ────
+// ──── WALLS — boundary rails ONLY, no obstacle shapes ────
 const walls=[
-  // Upper side walls (vertical)
-  {x1:24,y1:48,x2:24,y2:TH-320},
-  {x1:TW-24,y1:48,x2:TW-24,y2:TH-320},
-  // Lower side walls — angled 6px inward
-  {x1:24,y1:TH-320,x2:30,y2:TH-145},
-  {x1:TW-24,y1:TH-320,x2:TW-30,y2:TH-145},
+  // Left wall — slight 2° inward angle entire length
+  {x1:24,y1:48,x2:30,y2:TH-145},
+  // Right wall
+  {x1:TW-24,y1:48,x2:TW-30,y2:TH-145},
   // Top wall
   {x1:24,y1:48,x2:TW-24,y2:48},
-  // Gutters
+  // Gutters — angled from wall end toward flipper zone
   {x1:30,y1:TH-145,x2:116,y2:TH-67},
   {x1:TW-30,y1:TH-145,x2:TW-116,y2:TH-67},
-  // Funnel walls
+  // Funnel walls — slope toward drain
   {x1:120,y1:TH-63,x2:160,y2:TH-22},
   {x1:TW-120,y1:TH-63,x2:TW-160,y2:TH-22},
-  // Slingshots — OPEN V-shapes (2 walls, NO closing wall = no concave trap)
-  // Left slingshot V
-  {x1:72,y1:TH-276,x2:50,y2:TH-195},  // outer arm
-  {x1:72,y1:TH-276,x2:110,y2:TH-195},  // inner arm
-  // Right slingshot V
-  {x1:TW-72,y1:TH-276,x2:TW-50,y2:TH-195},
-  {x1:TW-72,y1:TH-276,x2:TW-110,y2:TH-195},
-  // arches — gapped
-  {x1:24,y1:48,x2:64,y2:88},
-  {x1:68,y1:92,x2:68,y2:155},
-  {x1:TW-24,y1:48,x2:TW-64,y2:88},
-  {x1:TW-68,y1:92,x2:TW-68,y2:155},
-  // launch lane
-  {x1:TW-14,y1:68,x2:TW-14,y2:TH-25},{x1:TW-56,y1:68,x2:TW-56,y2:215},{x1:TW-56,y1:215,x2:TW-24,y2:48},
-  // center V — open ends, no closing wall
-  {x1:145,y1:475,x2:127,y2:526},
-  {x1:TW-145,y1:475,x2:TW-127,y2:526},
-  // side lanes
-  {x1:86,y1:155,x2:86,y2:250},{x1:TW-86,y1:155,x2:TW-86,y2:250},
+  // Arches — single continuous wall each, no shared vertex
+  {x1:24,y1:48,x2:68,y2:155},
+  {x1:TW-24,y1:48,x2:TW-68,y2:155},
+  // Launch lane
+  {x1:TW-14,y1:68,x2:TW-14,y2:TH-25},
+  {x1:TW-56,y1:68,x2:TW-56,y2:215},
+  {x1:TW-56,y1:215,x2:TW-24,y2:48},
 ];
 
-// ──── CORNER BUMPERS — circles at wall junctions only ────
-const corners=[
-  // Arch corners
-  {x:66,y:90,r:5},
-  {x:TW-66,y:90,r:5},
-  // Gutter-funnel junction
-  {x:118,y:TH-65,r:5},
-  {x:TW-118,y:TH-65,r:5},
-  // Center V tips
-  {x:126,y:528,r:5},
-  {x:TW-126,y:528,r:5},
-  // Lower side wall junction
-  {x:30,y:TH-145,r:5},
-  {x:TW-30,y:TH-145,r:5},
-  // Slingshot V-point — larger, acts as slingshot kick bumper
-  {x:72,y:TH-276,r:8},
-  {x:TW-72,y:TH-276,r:8},
-  // Slingshot arm ends
-  {x:50,y:TH-195,r:5},
-  {x:110,y:TH-195,r:5},
-  {x:TW-50,y:TH-195,r:5},
-  {x:TW-110,y:TH-195,r:5},
-];
-
-// ──── BUMPERS ────
+// ──── BUMPERS — ALL obstacles are circles, no line-segment shapes ────
 const bumpers=[
-  {x:TW/2,y:175,r:30,pts:300,g:0},
-  {x:TW/2-68,y:242,r:26,pts:200,g:0},
-  {x:TW/2+68,y:242,r:26,pts:200,g:0},
-  {x:106,y:375,r:22,pts:150,g:0},
-  {x:TW-106,y:375,r:22,pts:150,g:0},
-  {x:TW/2,y:315,r:19,pts:500,g:0},
-  {x:155,y:540,r:16,pts:120,g:0},
-  {x:TW-155,y:540,r:16,pts:120,g:0},
-  {x:TW/2-35,y:432,r:13,pts:180,g:0},
-  {x:TW/2+35,y:432,r:13,pts:180,g:0},
-  {x:TW/2-105,y:178,r:14,pts:100,g:0},
-  {x:TW/2+105,y:178,r:14,pts:100,g:0},
+  // Top cluster
+  {x:TW/2,y:170,r:30,pts:300,g:0},
+  {x:TW/2-72,y:245,r:26,pts:200,g:0},
+  {x:TW/2+72,y:245,r:26,pts:200,g:0},
+  // Center ring
+  {x:TW/2,y:320,r:20,pts:500,g:0},
+  // Mid bumpers
+  {x:100,y:380,r:22,pts:150,g:0},
+  {x:TW-100,y:380,r:22,pts:150,g:0},
+  {x:TW/2-38,y:435,r:14,pts:180,g:0},
+  {x:TW/2+38,y:435,r:14,pts:180,g:0},
+  // Slingshot replacements — large kick bumpers where V-shapes were
+  {x:60,y:TH-230,r:18,pts:80,g:0},
+  {x:TW-60,y:TH-230,r:18,pts:80,g:0},
+  // Lower bumpers
+  {x:145,y:545,r:16,pts:120,g:0},
+  {x:TW-145,y:545,r:16,pts:120,g:0},
+  // Center lower — replaces center V
+  {x:TW/2,y:510,r:15,pts:100,g:0},
+  // Side lane bumpers — replace vertical lines
+  {x:80,y:175,r:12,pts:100,g:0},
+  {x:TW-80,y:175,r:12,pts:100,g:0},
+  // Gutter guards
+  {x:48,y:TH-160,r:10,pts:50,g:0},
+  {x:TW-48,y:TH-160,r:10,pts:50,g:0},
 ];
 
 const dotRing=Array.from({length:16},(_,i)=>{const a=T2*i/16;return{x:TW/2+Math.cos(a)*62,y:315+Math.sin(a)*62,r:3,ph:i*.4};});
@@ -238,18 +213,6 @@ function step(dt){
         if(spd>1.5){part(wpx,wpy,2);sndWall();send('haptic',{level:'light'});}
       }
     }
-
-    // ── Corner bumper collisions (smooth circular deflectors at vertices) ──
-    for(const c of corners){
-      const dx=ball.x-c.x,dy=ball.y-c.y,d=Math.hypot(dx,dy),mn=BR+c.r;
-      if(d<mn&&d>.01){
-        const nx=dx/d,ny=dy/d;
-        ball.x=c.x+nx*(mn+.5);ball.y=c.y+ny*(mn+.5);
-        const b=refl(ball.vx,ball.vy,nx,ny,0.6);
-        ball.vx=b.vx;ball.vy=b.vy;
-      }
-    }
-
     // ── Bumper collisions ──
     for(const b of bumpers){
       const dx=ball.x-b.x,dy=ball.y-b.y,d=Math.hypot(dx,dy),mn=BR+b.r;
@@ -386,17 +349,6 @@ function draw(t){
   X.lineCap='round';
   for(const w of walls)gLine(w.x1,w.y1,w.x2,w.y2,.4,2.5,6);
   X.lineCap='butt';
-
-  // Slingshot fills (V-shape)
-  X.globalAlpha=.05;X.fillStyle='#fff';
-  for(const tri of[[[72,TH-276],[50,TH-195],[110,TH-195]],[[TW-72,TH-276],[TW-50,TH-195],[TW-110,TH-195]]]){
-    X.beginPath();X.moveTo(tx(tri[0][0])+sx,ty(tri[0][1])+sy);tri.slice(1).forEach(p=>X.lineTo(tx(p[0])+sx,ty(p[1])+sy));X.closePath();X.fill();
-  }
-  X.globalAlpha=1;
-
-  // Corner bumpers (subtle circles at vertices)
-  X.strokeStyle='rgba(255,255,255,0.08)';X.lineWidth=ts(1);
-  for(const c of corners){X.beginPath();X.arc(tx(c.x)+sx,ty(c.y)+sy,ts(c.r),0,T2);X.stroke();}
 
   // Dot ring
   for(const d of dotRing){const p=.3+.7*Math.sin(d.ph+t*2);X.fillStyle='rgba(255,255,255,'+(p>.55?.5:.15)+')';X.shadowColor='rgba(255,255,255,.3)';X.shadowBlur=ts(p>.55?6:1);X.beginPath();X.arc(tx(d.x)+sx,ty(d.y)+sy,ts(d.r),0,T2);X.fill();}
