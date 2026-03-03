@@ -8,6 +8,7 @@ import {
     StatusBar,
     Animated,
     Easing,
+    Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -124,13 +125,22 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
             <Animated.View style={anim3}>
                 <NeonCard style={styles.section}>
                     <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>DIFFICULTY</GlowText>
-                    <View style={styles.optionRow}>
-                        {(['easy', 'medium', 'hard'] as Difficulty[]).map((d) => (
-                            <NeonButton key={d} title={DIFFICULTY_LABELS[d]} variant={difficulty === d ? 'primary' : 'secondary'} size="sm"
-                                onPress={() => setDifficulty(d)}
-                                style={[styles.optionBtn, difficulty === d ? styles.optionBtnActive : undefined]}
-                            />
-                        ))}
+                    <View style={styles.diffGrid}>
+                        {([
+                            { key: 'easy' as Difficulty, stars: '★☆☆', desc: 'Relaxed & Forgiving' },
+                            { key: 'medium' as Difficulty, stars: '★★☆', desc: 'Balanced Challenge' },
+                            { key: 'hard' as Difficulty, stars: '★★★', desc: 'Precision Required' },
+                        ]).map((d) => {
+                            const selected = difficulty === d.key;
+                            return (
+                                <Pressable key={d.key} onPress={() => setDifficulty(d.key)}
+                                    style={[styles.diffBtn, selected ? styles.diffBtnActive : undefined]}>
+                                    <GlowText color={selected ? Colors.textPrimary : Colors.textMuted} size="xs" glow={0} align="center">{d.stars}</GlowText>
+                                    <GlowText color={selected ? Colors.textPrimary : Colors.textSecondary} size="body" weight="700" glow={0} align="center">{DIFFICULTY_LABELS[d.key]}</GlowText>
+                                    <GlowText color={selected ? Colors.textSecondary : Colors.textMuted} size="xs" glow={0} align="center">{d.desc}</GlowText>
+                                </Pressable>
+                            );
+                        })}
                     </View>
                 </NeonCard>
             </Animated.View>
@@ -169,4 +179,7 @@ const styles = StyleSheet.create({
     previewRowBorder: { marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.border },
     startBtn: { marginTop: Spacing.lg },
     backBtn: { marginTop: Spacing.sm + 4 },
+    diffGrid: { flexDirection: 'row' as const, justifyContent: 'space-between' as const, marginTop: Spacing.sm, gap: Spacing.sm },
+    diffBtn: { flex: 1, borderWidth: 1, borderColor: Colors.borderLight, borderRadius: 14, paddingVertical: Spacing.sm + 2, paddingHorizontal: Spacing.xs, alignItems: 'center' as const, backgroundColor: 'rgba(255,255,255,0.02)' },
+    diffBtnActive: { backgroundColor: Colors.bgSelected, borderColor: 'rgba(255,255,255,0.15)' },
 });

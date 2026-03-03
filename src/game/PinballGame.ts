@@ -1,6 +1,6 @@
 // ===================================================================
-// SolPin Arcade — HTML5 Canvas Pinball Engine v4
-// B&W monotone • WIDE drain gap • smooth physics • sounds + haptics
+// SolPin Arcade — HTML5 Canvas Pinball Engine v5
+// B&W monotone • sealed drain • progressive difficulty • game feel
 // ===================================================================
 
 import { Difficulty } from '../theme';
@@ -10,12 +10,15 @@ interface PinballHTMLOptions {
   duration: number;
 }
 
-const GRAV: Record<Difficulty, number> = { easy: 0.36, medium: 0.50, hard: 0.68 };
-const FPOW: Record<Difficulty, number> = { easy: 17, medium: 13.5, hard: 10 };
+// ──── DIFFICULTY PARAMETERS ────
+const DIFF = {
+  easy: { grav: 0.30, fpow: 16, flen: 62, br: 12, maxV: 16, bumpV: 6.5, wallR: 0.82, fhit: 6, flipSpd: 30, flipRest: 8 },
+  medium: { grav: 0.38, fpow: 14.5, flen: 58, br: 11, maxV: 18, bumpV: 7.5, wallR: 0.78, fhit: 5, flipSpd: 28, flipRest: 9 },
+  hard: { grav: 0.48, fpow: 13, flen: 54, br: 10, maxV: 20, bumpV: 8.5, wallR: 0.72, fhit: 4, flipSpd: 26, flipRest: 10 },
+};
 
 export const generatePinballHTML = (opts: PinballHTMLOptions): string => {
-  const grav = GRAV[opts.difficulty];
-  const fpow = FPOW[opts.difficulty];
+  const d = DIFF[opts.difficulty];
   const dur = opts.duration;
   const diff = opts.difficulty.toUpperCase();
 
@@ -29,7 +32,11 @@ let W=0,H=0,sc=1;const dpr=window.devicePixelRatio||1;
 function resize(){W=C.width=innerWidth*dpr;H=C.height=innerHeight*dpr;C.style.width=innerWidth+'px';C.style.height=innerHeight+'px';sc=Math.min(W/460,H/900);}
 resize();addEventListener('resize',resize);
 
-const G=${grav},FP=${fpow},DUR=${dur},BR=11,PI=Math.PI,T2=PI*2;
+// ──── DIFFICULTY CONFIG ────
+const G=${d.grav},FP=${d.fpow},DUR=${dur},BR=${d.br},FLEN=${d.flen};
+const MAX_V=${d.maxV},BUMP_V=${d.bumpV},WALL_R=${d.wallR},F_HIT=${d.fhit};
+const FLIP_SPD=${d.flipSpd},FLIP_REST=${d.flipRest};
+const PI=Math.PI,T2=PI*2;
 const TW=420,TH=850;
 const tx=x=>(W-TW*sc)/2+x*sc,ty=y=>(H-TH*sc)/2+y*sc,ts=s=>s*sc;
 
@@ -41,6 +48,7 @@ function sndWall(){tone(180+Math.random()*100,.05,'triangle',.05);}
 function sndFlip(){tone(320,.07,'sawtooth',.08);}
 function sndLaunch(){tone(140,.15,'sawtooth',.1);setTimeout(()=>tone(280,.1,'sine',.07),60);}
 function sndDrain(){tone(100,.4,'sawtooth',.12);setTimeout(()=>tone(60,.3,'sine',.08),120);}
+function sndCombo(){tone(600,.08,'sine',.1);tone(900,.06,'sine',.06);}
 
 // ──── BACKGROUND ────
 const stars=Array.from({length:70},()=>({x:Math.random()*TW,y:Math.random()*TH,r:.3+Math.random()*.8,p:Math.random()*T2}));
@@ -49,12 +57,18 @@ const orbs=Array.from({length:8},()=>({
   r:15+Math.random()*25,sp:.12+Math.random()*.35,ph:Math.random()*T2,dr:Math.random()-.5
 }));
 
-// ──── WALLS ────
+// ──── WALLS (with sealing walls to close side gaps) ────
 const walls=[
   {x1:24,y1:48,x2:24,y2:TH-145},{x1:TW-24,y1:48,x2:TW-24,y2:TH-145},
   {x1:24,y1:48,x2:TW-24,y2:48},
   // gutters
   {x1:24,y1:TH-145,x2:108,y2:TH-62},{x1:TW-24,y1:TH-145,x2:TW-108,y2:TH-62},
+  // ★ SEALING WALLS — close the side gaps between gutter and flipper pivots ★
+  {x1:108,y1:TH-62,x2:140,y2:TH-66},{x1:TW-108,y1:TH-62,x2:TW-140,y2:TH-66},
+  // Vertical seal below flipper pivots to bottom
+  {x1:108,y1:TH-62,x2:108,y2:TH-25},{x1:TW-108,y1:TH-62,x2:TW-108,y2:TH-25},
+  // Bottom wall behind flippers (ball can only go through center drain)
+  {x1:108,y1:TH-25,x2:140,y2:TH-25},{x1:TW-108,y1:TH-25,x2:TW-140,y2:TH-25},
   // slingshots
   {x1:70,y1:TH-280,x2:50,y2:TH-170},{x1:50,y1:TH-170,x2:108,y2:TH-128},{x1:108,y1:TH-128,x2:70,y2:TH-280},
   {x1:TW-70,y1:TH-280,x2:TW-50,y2:TH-170},{x1:TW-50,y1:TH-170,x2:TW-108,y2:TH-128},{x1:TW-108,y1:TH-128,x2:TW-70,y2:TH-280},
@@ -87,91 +101,126 @@ const bumpers=[
 
 const dotRing=Array.from({length:16},(_,i)=>{const a=T2*i/16;return{x:TW/2+Math.cos(a)*62,y:315+Math.sin(a)*62,r:3,ph:i*.4};});
 
-// ──── FLIPPERS — BALANCED GAP ────
-// Pivots at x=140 and x=280 (140px apart)
-// Length=58, rest angle=0.55 rad
-// Left tip at rest: 140 + cos(0.55)*58 ≈ 140+49.5 = 189.5
-// Right tip at rest: 280 - 49.5 = 230.5
-// GAP = 230.5 - 189.5 = 41px ≈ 1.9 ball widths — TIGHT BUT FAIR
+// ──── FLIPPERS ────
 const flippers=[
-  {px:140,py:TH-66,len:58,rest:0.55,flip:-0.85,angle:0.55,on:false,side:'L'},
-  {px:TW-140,py:TH-66,len:58,rest:PI-0.55,flip:PI+0.85,angle:PI-0.55,on:false,side:'R'},
+  {px:140,py:TH-66,len:FLEN,rest:0.55,flip:-0.85,angle:0.55,on:false,side:'L',hitT:0},
+  {px:TW-140,py:TH-66,len:FLEN,rest:PI-0.55,flip:PI+0.85,angle:PI-0.55,on:false,side:'R',hitT:0},
 ];
 
 // ──── STATE ────
 let ball={x:TW-40,y:TH-190,vx:0,vy:0,alive:true,go:false};
 let score=0,combo=0,cT=0,tLeft=DUR,st='playing',lt=performance.now(),tt=0;
-let lp=0,chrg=false,parts=[],pops=[];
+let lp=0,chrg=false,parts=[],pops=[],ripples=[];
 let shake={x:0,y:0,t:0};
+let drainSaveUsed=false;
+let comboMax=0;
 
 function part(x,y,n,pw){pw=pw||1;for(let i=0;i<n;i++){const a=Math.random()*T2,s=(1+Math.random()*3)*pw;parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:1,r:1.5+Math.random()*3});}}
 function pop(x,y,t){pops.push({x,y,t,l:1,vy:-1.5});}
+function ripple(x,y,maxR){ripples.push({x,y,r:0,maxR:maxR||30,l:1});}
 function doShake(p){shake.x=(Math.random()-.5)*p;shake.y=(Math.random()-.5)*p;shake.t=.12;}
 function send(t,d){if(window.ReactNativeWebView)window.ReactNativeWebView.postMessage(JSON.stringify({type:t,...(d||{})}));}
-function addS(pts,bx,by){combo++;cT=0;const m=Math.min(1+combo*.25,5);const g=Math.round(pts*m);score+=g;pop(bx,by,'+'+g);send('score',{score,combo:Math.round(m*10)/10});}
+function addS(pts,bx,by){
+  combo++;cT=0;const m=Math.min(1+combo*.25,8);const g=Math.round(pts*m);score+=g;
+  pop(bx,by,'+'+g);
+  comboMax=Math.max(comboMax,combo);
+  // Combo milestone particles
+  if(combo===3||combo===5||combo===8){part(bx,by,20,2);sndCombo();doShake(3);}
+  send('score',{score,combo:Math.round(m*10)/10});
+}
 
-// ──── COLLISION ────
+// ──── COLLISION HELPERS ────
 function ptSeg(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,l2=dx*dx+dy*dy;if(!l2)return{d:Math.hypot(px-x1,py-y1),cx:x1,cy:y1};const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/l2));const cx=x1+t*dx,cy=y1+t*dy;return{d:Math.hypot(px-cx,py-cy),cx,cy};}
 function refl(vx,vy,nx,ny,r){const d=vx*nx+vy*ny;return{vx:vx-2*d*nx*r,vy:vy-2*d*ny*r};}
+function clampV(vx,vy,max){const s=Math.hypot(vx,vy);if(s>max){const f=max/s;return{vx:vx*f,vy:vy*f};}return{vx,vy};}
 
 // ──── PHYSICS ────
 function step(dt){
   if(!ball.alive)return;
-  const dtC=Math.min(dt,.022),N=5,sub=dtC/N;
+
+  // Slow-mo clutch effect near drain
+  let timeMul=1;
+  if(ball.go&&ball.y>TH-100&&ball.vy>0)timeMul=0.65;
+
+  const dtC=Math.min(dt*timeMul,.022),N=8,sub=dtC/N;
   for(let i=0;i<N;i++){
     if(ball.go){ball.vy+=G*60*sub;ball.vx*=.9996;ball.vy*=.9996;}
-    const spd=Math.hypot(ball.vx,ball.vy);
-    if(spd>32){ball.vx=ball.vx/spd*32;ball.vy=ball.vy/spd*32;}
+
+    // Velocity clamp
+    const cv=clampV(ball.vx,ball.vy,MAX_V);ball.vx=cv.vx;ball.vy=cv.vy;
     ball.x+=ball.vx*60*sub;ball.y+=ball.vy*60*sub;
 
-    // Walls (bouncy 0.78)
+    // ── Wall collisions ──
     for(const w of walls){
       const{d,cx,cy}=ptSeg(ball.x,ball.y,w.x1,w.y1,w.x2,w.y2);
-      if(d<BR){const nx=(ball.x-cx)/d,ny=(ball.y-cy)/d;
+      if(d<BR){const nx=(ball.x-cx)/(d||1),ny=(ball.y-cy)/(d||1);
         ball.x=cx+nx*(BR+.8);ball.y=cy+ny*(BR+.8);
-        const b=refl(ball.vx,ball.vy,nx,ny,.78);ball.vx=b.vx;ball.vy=b.vy;
+        const b=refl(ball.vx,ball.vy,nx,ny,WALL_R);
+        // Clamp horizontal death-bounces: limit horizontal velocity after bounce
+        ball.vx=Math.max(-MAX_V*.7,Math.min(MAX_V*.7,b.vx));
+        ball.vy=b.vy;
+        const spd=Math.hypot(ball.vx,ball.vy);
         if(spd>2){part(cx,cy,2);sndWall();send('haptic',{level:'light'});}
       }
     }
 
-    // Bumpers (very bouncy)
+    // ── Bumper collisions ──
     for(const b of bumpers){
       const dx=ball.x-b.x,dy=ball.y-b.y,d=Math.hypot(dx,dy),mn=BR+b.r;
       if(d<mn&&d>.01){
         const nx=dx/d,ny=dy/d;
         ball.x=b.x+nx*(mn+1.5);ball.y=b.y+ny*(mn+1.5);
-        const sp=8.5+Math.random()*3;
+        const sp=BUMP_V+Math.random()*2;
         ball.vx=nx*sp;ball.vy=ny*sp;
+        // Post-bump velocity clamp
+        const cv2=clampV(ball.vx,ball.vy,MAX_V);ball.vx=cv2.vx;ball.vy=cv2.vy;
         b.g=1;setTimeout(()=>{b.g=0;},280);
         addS(b.pts,b.x+nx*b.r,b.y+ny*b.r);
         part(b.x+nx*b.r,b.y+ny*b.r,12,1.3);
-        doShake(5);sndBump();send('haptic',{level:'medium'});
+        ripple(b.x,b.y,b.r+15);
+        doShake(4);sndBump();send('haptic',{level:'medium'});
       }
     }
 
-    // Flippers
+    // ── Flipper collisions ──
     for(const f of flippers){
       const tipX=f.px+Math.cos(f.angle)*f.len,tipY=f.py+Math.sin(f.angle)*f.len;
       const{d,cx,cy}=ptSeg(ball.x,ball.y,f.px,f.py,tipX,tipY);
-      if(d<BR+5){
+      if(d<BR+F_HIT){
         const nx=(ball.x-cx)/(d||1),ny=(ball.y-cy)/(d||1);
-        ball.x=cx+nx*(BR+6);ball.y=cy+ny*(BR+6);
+        ball.x=cx+nx*(BR+F_HIT+1);ball.y=cy+ny*(BR+F_HIT+1);
         if(f.on){
-          ball.vx=f.side==='L'?FP*.55:-FP*.55;ball.vy=-FP;
+          // Timed hit bonus: if flipper activated <80ms ago, +15% power
+          const elapsed=(performance.now()-f.hitT)/1000;
+          const bonus=elapsed<0.08?1.15:1;
+          ball.vx=(f.side==='L'?FP*.55:-FP*.55)*bonus;
+          ball.vy=-FP*bonus;
+          // Clamp post-flip velocity
+          const cv3=clampV(ball.vx,ball.vy,MAX_V);ball.vx=cv3.vx;ball.vy=cv3.vy;
           part(cx,cy,7,1.3);addS(30,cx,cy);
+          ripple(cx,cy,20);
           doShake(2);sndFlip();send('haptic',{level:'medium'});
         }else{
+          // Edge assist: if ball barely touching (d > BR+F_HIT-3), add small upward nudge
+          if(d>BR+F_HIT-3){ball.vy-=1.5;}
           const b=refl(ball.vx,ball.vy,nx,ny,.55);ball.vx=b.vx;ball.vy=b.vy;
         }
       }
     }
 
-    // Bounds
+    // ── Bounds ──
     if(ball.x<18+BR){ball.x=18+BR;ball.vx=Math.abs(ball.vx)*.7;}
     if(ball.x>TW-10-BR){ball.x=TW-10-BR;ball.vx=-Math.abs(ball.vx)*.7;}
     if(ball.y<42+BR){ball.y=42+BR;ball.vy=Math.abs(ball.vy)*.7;}
 
-    // DRAIN
+    // ── Drain save (once per life) ──
+    if(!drainSaveUsed&&ball.y>TH-30&&ball.vy>0&&Math.hypot(ball.vx,ball.vy)<5){
+      ball.vy=-3.5;ball.vy-=1;
+      drainSaveUsed=true;
+      send('haptic',{level:'heavy'});
+    }
+
+    // ── DRAIN ──
     if(ball.y>TH-10){
       ball.alive=false;st='lost';
       part(ball.x,ball.y,25,1.6);doShake(10);sndDrain();
@@ -179,14 +228,21 @@ function step(dt){
     }
   }
 
-  for(const f of flippers){const tgt=f.on?f.flip:f.rest,df=tgt-f.angle,mv=(f.on?24:10)*dtC;f.angle+=Math.abs(df)<mv?df:Math.sign(df)*mv;}
+  // Flipper angle update
+  for(const f of flippers){
+    const tgt=f.on?f.flip:f.rest;
+    const df=tgt-f.angle;
+    const mv=(f.on?FLIP_SPD:FLIP_REST)*dt*timeMul;
+    f.angle+=Math.abs(df)<mv?df:Math.sign(df)*mv;
+  }
+
   tLeft=Math.max(0,tLeft-dt);
   if(tLeft<=0){st='won';send('gameover',{result:'won',score});return;}
   send('timer',{timeLeft:Math.ceil(tLeft)});
-  cT+=dt;if(cT>1.8)combo=0;
+  cT+=dt;if(cT>2.5)combo=0; // Extended combo timeout
 }
 
-// ──── DRAW (B&W MONOTONE) ────
+// ──── DRAW ────
 function gLine(x1,y1,x2,y2,a,lw,bl){
   const c='rgba(255,255,255,'+a+')';
   X.strokeStyle=c;X.lineWidth=ts(lw);X.shadowColor='rgba(255,255,255,'+a*.6+')';X.shadowBlur=ts(bl);
@@ -201,7 +257,7 @@ function draw(t){
   bg.addColorStop(0,'#0e0e0e');bg.addColorStop(1,'#050505');
   X.fillStyle=bg;X.fillRect(0,0,W,H);
 
-  // Moving orbs (dark gray)
+  // Orbs
   for(const o of orbs){
     const ox=o.x+Math.sin(t*o.sp+o.ph)*22+o.dr*Math.sin(t*.25);
     const oy=o.y+Math.cos(t*o.sp*1.2+o.ph)*16;
@@ -217,7 +273,7 @@ function draw(t){
   // Table surface
   X.fillStyle='rgba(12,12,12,0.8)';X.fillRect(tx(20)+sx,ty(45)+sy,ts(TW-40),ts(TH-65));
 
-  // Table border (white glow)
+  // Table border
   X.shadowColor='rgba(255,255,255,0.25)';X.shadowBlur=ts(18);
   X.strokeStyle='rgba(255,255,255,0.35)';X.lineWidth=ts(3);
   X.strokeRect(tx(18)+sx,ty(42)+sy,ts(TW-36),ts(TH-58));
@@ -225,7 +281,7 @@ function draw(t){
   X.strokeRect(tx(18)+sx,ty(42)+sy,ts(TW-36),ts(TH-58));
   X.shadowBlur=0;
 
-  // Walls (white with varying opacity)
+  // Walls
   X.lineCap='round';
   for(const w of walls)gLine(w.x1,w.y1,w.x2,w.y2,.4,2.5,6);
   X.lineCap='butt';
@@ -242,7 +298,7 @@ function draw(t){
   X.shadowBlur=0;
   X.strokeStyle='rgba(255,255,255,0.08)';X.lineWidth=ts(1.5);X.beginPath();X.arc(tx(TW/2)+sx,ty(315)+sy,ts(62),0,T2);X.stroke();
 
-  // Bumpers (white monotone)
+  // Bumpers
   for(const b of bumpers){
     const lit=b.g>0;
     const alpha=lit?1:.45;
@@ -261,45 +317,69 @@ function draw(t){
   }
   X.shadowBlur=0;
 
-  // Flippers (white gradient with active glow)
+  // Flippers
   X.lineCap='round';
   for(const f of flippers){
     const tipX=f.px+Math.cos(f.angle)*f.len,tipY=f.py+Math.sin(f.angle)*f.len;
-    // Shadow base
     X.strokeStyle='rgba(255,255,255,0.08)';X.lineWidth=ts(15);X.shadowBlur=0;
     X.beginPath();X.moveTo(tx(f.px)+sx,ty(f.py)+sy);X.lineTo(tx(tipX)+sx,ty(tipY)+sy);X.stroke();
-    // Main body
     const fg=X.createLinearGradient(tx(f.px)+sx,ty(f.py)+sy,tx(tipX)+sx,ty(tipY)+sy);
     fg.addColorStop(0,'rgba(255,255,255,'+(f.on?1:.85)+')');fg.addColorStop(1,'rgba(255,255,255,'+(f.on?.7:.45)+')');
     X.strokeStyle=fg;X.lineWidth=ts(f.on?12:11);
     X.shadowColor='rgba(255,255,255,'+(f.on?.5:.25)+')';X.shadowBlur=ts(f.on?24:8);
     X.beginPath();X.moveTo(tx(f.px)+sx,ty(f.py)+sy);X.lineTo(tx(tipX)+sx,ty(tipY)+sy);X.stroke();
     X.shadowBlur=0;
-    // Pivot dot
     X.fillStyle=f.on?'#fff':'rgba(255,255,255,0.9)';X.beginPath();X.arc(tx(f.px)+sx,ty(f.py)+sy,ts(f.on?6:5),0,T2);X.fill();
   }
   X.lineCap='butt';X.shadowBlur=0;
 
-  // DRAIN GAP — dashed white line between flipper tips
-  // Calculate actual tip positions at rest to place the drain marker
+  // Drain zone
   const lTipX=flippers[0].px+Math.cos(flippers[0].rest)*flippers[0].len;
   const rTipX=flippers[1].px+Math.cos(flippers[1].rest)*flippers[1].len;
   const dY=TH-18;
-  X.strokeStyle='rgba(255,255,255,0.3)';X.lineWidth=ts(2);
-  X.shadowColor='rgba(255,255,255,.2)';X.shadowBlur=ts(8);
+  // Danger glow near drain
+  if(ball.alive&&ball.go&&ball.y>TH-150){
+    const danger=Math.min(1,(ball.y-(TH-150))/100);
+    X.fillStyle='rgba(255,100,100,'+(danger*.08)+')';
+    X.fillRect(tx(lTipX-10)+sx,ty(TH-80)+sy,ts(rTipX-lTipX+20),ts(80));
+  }
+  X.strokeStyle='rgba(255,255,255,0.35)';X.lineWidth=ts(2.5);
+  X.shadowColor='rgba(255,255,255,.3)';X.shadowBlur=ts(10);
   X.setLineDash([ts(6),ts(5)]);
   X.beginPath();X.moveTo(tx(lTipX+5)+sx,ty(dY)+sy);X.lineTo(tx(rTipX-5)+sx,ty(dY)+sy);X.stroke();
   X.setLineDash([]);X.shadowBlur=0;
-  X.fillStyle='rgba(255,255,255,0.2)';X.font=ts(7)+'px monospace';X.textAlign='center';X.textBaseline='middle';
-  X.fillText('DRAIN',tx(TW/2)+sx,ty(TH-6)+sy);
+  // Pulsing DANGER text when ball near drain
+  if(ball.alive&&ball.go&&ball.y>TH-120){
+    const pulse=.4+.6*Math.abs(Math.sin(t*4));
+    X.fillStyle='rgba(255,120,120,'+pulse*.5+')';X.font='bold '+ts(8)+'px monospace';X.textAlign='center';X.textBaseline='middle';
+    X.fillText('⚠ DANGER ⚠',tx(TW/2)+sx,ty(TH-6)+sy);
+  }else{
+    X.fillStyle='rgba(255,255,255,0.2)';X.font=ts(7)+'px monospace';X.textAlign='center';X.textBaseline='middle';
+    X.fillText('DRAIN',tx(TW/2)+sx,ty(TH-6)+sy);
+  }
+
+  // Impact ripples
+  for(let i=ripples.length-1;i>=0;i--){
+    const rp=ripples[i];rp.r+=(rp.maxR-rp.r)*.15;rp.l-=.035;
+    if(rp.l<=0){ripples.splice(i,1);continue;}
+    X.globalAlpha=rp.l*.4;X.strokeStyle='#fff';X.lineWidth=ts(1.5);
+    X.beginPath();X.arc(tx(rp.x)+sx,ty(rp.y)+sy,ts(rp.r),0,T2);X.stroke();
+  }
+  X.globalAlpha=1;
 
   // Ball
   if(ball.alive){
-    // Trail
-    if(ball.go&&Math.hypot(ball.vx,ball.vy)>3){X.globalAlpha=.2;for(let i=1;i<=3;i++){X.fillStyle='rgba(255,255,255,'+(0.1/i)+')';X.beginPath();X.arc(tx(ball.x-ball.vx*i*.12)+sx,ty(ball.y-ball.vy*i*.12)+sy,ts(BR*(1-i*.15)),0,T2);X.fill();}X.globalAlpha=1;}
-    // Halo
+    const spd=Math.hypot(ball.vx,ball.vy);
+    // Trail (5 ghost balls)
+    if(ball.go&&spd>2){
+      X.globalAlpha=.2;
+      for(let i=1;i<=5;i++){X.fillStyle='rgba(255,255,255,'+(0.12/i)+')';X.beginPath();X.arc(tx(ball.x-ball.vx*i*.1)+sx,ty(ball.y-ball.vy*i*.1)+sy,ts(BR*(1-i*.12)),0,T2);X.fill();}
+      X.globalAlpha=1;
+    }
+    // Speed-based halo
+    const haloIntensity=Math.min(.35+spd*.02,.55);
     const halo=X.createRadialGradient(tx(ball.x)+sx,ty(ball.y)+sy,0,tx(ball.x)+sx,ty(ball.y)+sy,ts(BR*2.5));
-    halo.addColorStop(0,'rgba(255,255,255,0.35)');halo.addColorStop(1,'rgba(255,255,255,0)');
+    halo.addColorStop(0,'rgba(255,255,255,'+haloIntensity+')');halo.addColorStop(1,'rgba(255,255,255,0)');
     X.fillStyle=halo;X.beginPath();X.arc(tx(ball.x)+sx,ty(ball.y)+sy,ts(BR*2.5),0,T2);X.fill();
     // Body
     const bg2=X.createRadialGradient(tx(ball.x-2)+sx,ty(ball.y-3)+sy,ts(1),tx(ball.x)+sx,ty(ball.y)+sy,ts(BR));
@@ -312,13 +392,29 @@ function draw(t){
     X.fillStyle='rgba(255,255,255,0.7)';X.beginPath();X.arc(tx(ball.x-3)+sx,ty(ball.y-4)+sy,ts(3),0,T2);X.fill();
   }
 
-  // Particles (white)
+  // Particles
   for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.x+=p.vx;p.y+=p.vy;p.l-=.03;if(p.l<=0){parts.splice(i,1);continue;}X.globalAlpha=p.l*.8;X.fillStyle='#fff';X.shadowColor='rgba(255,255,255,.3)';X.shadowBlur=ts(4);X.beginPath();X.arc(tx(p.x)+sx,ty(p.y)+sy,ts(p.r*p.l),0,T2);X.fill();}
   X.globalAlpha=1;X.shadowBlur=0;
 
-  // Score popups (white)
+  // Score popups
   for(let i=pops.length-1;i>=0;i--){const p=pops[i];p.y+=p.vy;p.l-=.024;if(p.l<=0){pops.splice(i,1);continue;}X.globalAlpha=p.l;X.fillStyle='#fff';X.shadowColor='rgba(255,255,255,.5)';X.shadowBlur=ts(8);X.font='bold '+ts(13)+'px monospace';X.textAlign='center';X.textBaseline='middle';X.fillText(p.t,tx(p.x)+sx,ty(p.y)+sy);}
   X.globalAlpha=1;X.shadowBlur=0;
+
+  // Combo counter (HUD element in game canvas)
+  if(combo>=2){
+    const cAlpha=Math.min(1,combo*.15+.3);
+    X.globalAlpha=cAlpha;X.fillStyle='#fff';
+    X.shadowColor='rgba(255,255,255,.4)';X.shadowBlur=ts(10);
+    X.font='bold '+ts(combo>=5?18:14)+'px monospace';X.textAlign='center';X.textBaseline='middle';
+    X.fillText(combo+'x COMBO',tx(TW/2)+sx,ty(TH-105)+sy);
+    X.shadowBlur=0;X.globalAlpha=1;
+  }
+
+  // Slow-mo indicator
+  if(ball.alive&&ball.go&&ball.y>TH-100&&ball.vy>0){
+    X.globalAlpha=.15+.1*Math.sin(t*6);X.fillStyle='rgba(255,200,100,.3)';X.font=ts(9)+'px monospace';X.textAlign='center';
+    X.fillText('⚡ CLUTCH',tx(TW/2)+sx,ty(TH-130)+sy);X.globalAlpha=1;
+  }
 
   // Launch zone
   if(!ball.go){
@@ -356,14 +452,14 @@ document.addEventListener('touchstart',e=>{e.preventDefault();
   if(AC.state==='suspended')AC.resume();
   for(const t of e.changedTouches){const x=t.clientX,mid=innerWidth/2;
     if(!ball.go&&x>innerWidth*.76){chrg=true;lp=0;}
-    else if(x<mid){flippers[0].on=true;sndFlip();}
-    else{flippers[1].on=true;sndFlip();}
+    else if(x<mid){flippers[0].on=true;flippers[0].hitT=performance.now();sndFlip();}
+    else{flippers[1].on=true;flippers[1].hitT=performance.now();sndFlip();}
   }
 },{passive:false});
 
 document.addEventListener('touchend',e=>{e.preventDefault();
   for(const t of e.changedTouches){const x=t.clientX,mid=innerWidth/2;
-    if(chrg&&!ball.go){chrg=false;ball.go=true;ball.vy=-(10+lp*16);ball.vx=-.8-Math.random()*2.5;lp=0;sndLaunch();send('launched',{});send('haptic',{level:'heavy'});}
+    if(chrg&&!ball.go){chrg=false;ball.go=true;ball.vy=-(10+lp*14);ball.vx=-.8-Math.random()*2;lp=0;sndLaunch();send('launched',{});send('haptic',{level:'heavy'});}
     else if(x<mid)flippers[0].on=false;
     else flippers[1].on=false;
   }
