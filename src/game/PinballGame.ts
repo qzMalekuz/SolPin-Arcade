@@ -57,18 +57,15 @@ const orbs=Array.from({length:8},()=>({
   r:15+Math.random()*25,sp:.12+Math.random()*.35,ph:Math.random()*T2,dr:Math.random()-.5
 }));
 
-// ──── WALLS (with sealing walls to close side gaps) ────
+// ──── WALLS (funnel geometry — no sharp corners) ────
 const walls=[
   {x1:24,y1:48,x2:24,y2:TH-145},{x1:TW-24,y1:48,x2:TW-24,y2:TH-145},
   {x1:24,y1:48,x2:TW-24,y2:48},
-  // gutters
+  // gutters — angled walls from sides down to flipper area
   {x1:24,y1:TH-145,x2:108,y2:TH-62},{x1:TW-24,y1:TH-145,x2:TW-108,y2:TH-62},
-  // ★ SEALING WALLS — close the side gaps between gutter and flipper pivots ★
-  {x1:108,y1:TH-62,x2:140,y2:TH-66},{x1:TW-108,y1:TH-62,x2:TW-140,y2:TH-66},
-  // Vertical seal below flipper pivots to bottom
-  {x1:108,y1:TH-62,x2:108,y2:TH-25},{x1:TW-108,y1:TH-62,x2:TW-108,y2:TH-25},
-  // Bottom wall behind flippers (ball can only go through center drain)
-  {x1:108,y1:TH-25,x2:140,y2:TH-25},{x1:TW-108,y1:TH-25,x2:TW-140,y2:TH-25},
+  // ★ FUNNEL WALLS — smooth diagonal from gutter end to drain edges ★
+  // No vertical walls, no 90° corners — gentle slope toward center drain
+  {x1:108,y1:TH-62,x2:145,y2:TH-18},{x1:TW-108,y1:TH-62,x2:TW-145,y2:TH-18},
   // slingshots
   {x1:70,y1:TH-280,x2:50,y2:TH-170},{x1:50,y1:TH-170,x2:108,y2:TH-128},{x1:108,y1:TH-128,x2:70,y2:TH-280},
   {x1:TW-70,y1:TH-280,x2:TW-50,y2:TH-170},{x1:TW-50,y1:TH-170,x2:TW-108,y2:TH-128},{x1:TW-108,y1:TH-128,x2:TW-70,y2:TH-280},
@@ -112,8 +109,8 @@ let ball={x:TW-40,y:TH-190,vx:0,vy:0,alive:true,go:false};
 let score=0,combo=0,cT=0,tLeft=DUR,st='playing',lt=performance.now(),tt=0;
 let lp=0,chrg=false,parts=[],pops=[],ripples=[];
 let shake={x:0,y:0,t:0};
-let drainSaveUsed=false;
 let comboMax=0;
+let stuckTimer=0; // anti-stuck detection
 
 function part(x,y,n,pw){pw=pw||1;for(let i=0;i<n;i++){const a=Math.random()*T2,s=(1+Math.random()*3)*pw;parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:1,r:1.5+Math.random()*3});}}
 function pop(x,y,t){pops.push({x,y,t,l:1,vy:-1.5});}
@@ -138,11 +135,7 @@ function clampV(vx,vy,max){const s=Math.hypot(vx,vy);if(s>max){const f=max/s;ret
 function step(dt){
   if(!ball.alive)return;
 
-  // Slow-mo clutch effect near drain
-  let timeMul=1;
-  if(ball.go&&ball.y>TH-100&&ball.vy>0)timeMul=0.65;
-
-  const dtC=Math.min(dt*timeMul,.022),N=8,sub=dtC/N;
+  const dtC=Math.min(dt,.022),N=8,sub=dtC/N;
   for(let i=0;i<N;i++){
     if(ball.go){ball.vy+=G*60*sub;ball.vx*=.9996;ball.vy*=.9996;}
 
@@ -201,8 +194,6 @@ function step(dt){
           ripple(cx,cy,20);
           doShake(2);sndFlip();send('haptic',{level:'medium'});
         }else{
-          // Edge assist: if ball barely touching (d > BR+F_HIT-3), add small upward nudge
-          if(d>BR+F_HIT-3){ball.vy-=1.5;}
           const b=refl(ball.vx,ball.vy,nx,ny,.55);ball.vx=b.vx;ball.vy=b.vy;
         }
       }
@@ -213,14 +204,7 @@ function step(dt){
     if(ball.x>TW-10-BR){ball.x=TW-10-BR;ball.vx=-Math.abs(ball.vx)*.7;}
     if(ball.y<42+BR){ball.y=42+BR;ball.vy=Math.abs(ball.vy)*.7;}
 
-    // ── Drain save (once per life) ──
-    if(!drainSaveUsed&&ball.y>TH-30&&ball.vy>0&&Math.hypot(ball.vx,ball.vy)<5){
-      ball.vy=-3.5;ball.vy-=1;
-      drainSaveUsed=true;
-      send('haptic',{level:'heavy'});
-    }
-
-    // ── DRAIN ──
+    // ── DRAIN (no artificial bounce — consistent across modes) ──
     if(ball.y>TH-10){
       ball.alive=false;st='lost';
       part(ball.x,ball.y,25,1.6);doShake(10);sndDrain();
@@ -228,18 +212,24 @@ function step(dt){
     }
   }
 
+  // Anti-stuck detection: if ball velocity very low for too long near bottom, nudge it
+  if(ball.go){
+    const spd=Math.hypot(ball.vx,ball.vy);
+    if(spd<0.5&&ball.y>TH-200){stuckTimer+=dt;if(stuckTimer>0.5){ball.vy=-3;ball.vx=(Math.random()-.5)*2;stuckTimer=0;}}else{stuckTimer=0;}
+  }
+
   // Flipper angle update
   for(const f of flippers){
     const tgt=f.on?f.flip:f.rest;
     const df=tgt-f.angle;
-    const mv=(f.on?FLIP_SPD:FLIP_REST)*dt*timeMul;
+    const mv=(f.on?FLIP_SPD:FLIP_REST)*dt;
     f.angle+=Math.abs(df)<mv?df:Math.sign(df)*mv;
   }
 
   tLeft=Math.max(0,tLeft-dt);
   if(tLeft<=0){st='won';send('gameover',{result:'won',score});return;}
   send('timer',{timeLeft:Math.ceil(tLeft)});
-  cT+=dt;if(cT>2.5)combo=0; // Extended combo timeout
+  cT+=dt;if(cT>2.5)combo=0;
 }
 
 // ──── DRAW ────
@@ -408,12 +398,6 @@ function draw(t){
     X.font='bold '+ts(combo>=5?18:14)+'px monospace';X.textAlign='center';X.textBaseline='middle';
     X.fillText(combo+'x COMBO',tx(TW/2)+sx,ty(TH-105)+sy);
     X.shadowBlur=0;X.globalAlpha=1;
-  }
-
-  // Slow-mo indicator
-  if(ball.alive&&ball.go&&ball.y>TH-100&&ball.vy>0){
-    X.globalAlpha=.15+.1*Math.sin(t*6);X.fillStyle='rgba(255,200,100,.3)';X.font=ts(9)+'px monospace';X.textAlign='center';
-    X.fillText('⚡ CLUTCH',tx(TW/2)+sx,ty(TH-130)+sy);X.globalAlpha=1;
   }
 
   // Launch zone
