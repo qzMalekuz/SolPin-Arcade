@@ -87,15 +87,15 @@ const bumpers=[
 
 const dotRing=Array.from({length:16},(_,i)=>{const a=T2*i/16;return{x:TW/2+Math.cos(a)*62,y:315+Math.sin(a)*62,r:3,ph:i*.4};});
 
-// ──── FLIPPERS — VERY WIDE GAP ────
-// Pivots at x=125 and x=295 (170px apart)
+// ──── FLIPPERS — BALANCED GAP ────
+// Pivots at x=140 and x=280 (140px apart)
 // Length=58, rest angle=0.55 rad
-// Left tip at rest: 125 + cos(0.55)*58 ≈ 125+49.5 = 174.5
-// Right tip at rest: 295 - 49.5 = 245.5
-// GAP = 245.5 - 174.5 = 71px ≈ 3.2 ball widths — CLEARLY VISIBLE
+// Left tip at rest: 140 + cos(0.55)*58 ≈ 140+49.5 = 189.5
+// Right tip at rest: 280 - 49.5 = 230.5
+// GAP = 230.5 - 189.5 = 41px ≈ 1.9 ball widths — TIGHT BUT FAIR
 const flippers=[
-  {px:125,py:TH-66,len:58,rest:0.55,flip:-0.85,angle:0.55,on:false,side:'L'},
-  {px:TW-125,py:TH-66,len:58,rest:PI-0.55,flip:PI+0.85,angle:PI-0.55,on:false,side:'R'},
+  {px:140,py:TH-66,len:58,rest:0.55,flip:-0.85,angle:0.55,on:false,side:'L'},
+  {px:TW-140,py:TH-66,len:58,rest:PI-0.55,flip:PI+0.85,angle:PI-0.55,on:false,side:'R'},
 ];
 
 // ──── STATE ────
@@ -261,22 +261,22 @@ function draw(t){
   }
   X.shadowBlur=0;
 
-  // Flippers (white gradient)
+  // Flippers (white gradient with active glow)
   X.lineCap='round';
   for(const f of flippers){
     const tipX=f.px+Math.cos(f.angle)*f.len,tipY=f.py+Math.sin(f.angle)*f.len;
-    // Shadow
-    X.strokeStyle='rgba(255,255,255,0.1)';X.lineWidth=ts(14);X.shadowBlur=0;
+    // Shadow base
+    X.strokeStyle='rgba(255,255,255,0.08)';X.lineWidth=ts(15);X.shadowBlur=0;
     X.beginPath();X.moveTo(tx(f.px)+sx,ty(f.py)+sy);X.lineTo(tx(tipX)+sx,ty(tipY)+sy);X.stroke();
-    // Main
+    // Main body
     const fg=X.createLinearGradient(tx(f.px)+sx,ty(f.py)+sy,tx(tipX)+sx,ty(tipY)+sy);
-    fg.addColorStop(0,'rgba(255,255,255,0.9)');fg.addColorStop(1,'rgba(255,255,255,0.5)');
-    X.strokeStyle=fg;X.lineWidth=ts(10);
-    X.shadowColor='rgba(255,255,255,.4)';X.shadowBlur=ts(f.on?18:6);
+    fg.addColorStop(0,'rgba(255,255,255,'+(f.on?1:.85)+')');fg.addColorStop(1,'rgba(255,255,255,'+(f.on?.7:.45)+')');
+    X.strokeStyle=fg;X.lineWidth=ts(f.on?12:11);
+    X.shadowColor='rgba(255,255,255,'+(f.on?.5:.25)+')';X.shadowBlur=ts(f.on?24:8);
     X.beginPath();X.moveTo(tx(f.px)+sx,ty(f.py)+sy);X.lineTo(tx(tipX)+sx,ty(tipY)+sy);X.stroke();
     X.shadowBlur=0;
-    // Pivot
-    X.fillStyle='#fff';X.beginPath();X.arc(tx(f.px)+sx,ty(f.py)+sy,ts(5),0,T2);X.fill();
+    // Pivot dot
+    X.fillStyle=f.on?'#fff':'rgba(255,255,255,0.9)';X.beginPath();X.arc(tx(f.px)+sx,ty(f.py)+sy,ts(f.on?6:5),0,T2);X.fill();
   }
   X.lineCap='butt';X.shadowBlur=0;
 

@@ -6,18 +6,23 @@ interface GlowTextProps {
     children: React.ReactNode;
     color?: string;
     size?: keyof typeof FontSizes;
-    style?: TextStyle;
+    style?: TextStyle | TextStyle[];
     align?: 'left' | 'center' | 'right';
     weight?: TextStyle['fontWeight'];
+    /** Controls glow intensity: 0 = none, 1 = subtle, 2 = soft (default) */
+    glow?: 0 | 1 | 2;
 }
 
-export const GlowText: React.FC<GlowTextProps> = ({
+const GLOW_RADIUS = [0, 2, 4];
+
+export const GlowText: React.FC<GlowTextProps> = React.memo(({
     children,
-    color = Colors.neonBlue,
+    color = Colors.textPrimary,
     size = 'md',
     style,
     align = 'left',
-    weight = '700',
+    weight = '600',
+    glow = 2,
 }) => (
     <Text
         style={[
@@ -27,19 +32,21 @@ export const GlowText: React.FC<GlowTextProps> = ({
                 fontSize: FontSizes[size],
                 textAlign: align,
                 fontWeight: weight,
-                textShadowColor: color,
+                textShadowColor: glow > 0 ? color : 'transparent',
+                textShadowRadius: GLOW_RADIUS[glow],
             },
             style,
         ]}
     >
         {children}
     </Text>
-);
+));
+
+GlowText.displayName = 'GlowText';
 
 const styles = StyleSheet.create({
     base: {
         textShadowOffset: { width: 0, height: 0 },
-        textShadowRadius: 12,
-        letterSpacing: 0.8,
+        letterSpacing: 0.5,
     },
 });

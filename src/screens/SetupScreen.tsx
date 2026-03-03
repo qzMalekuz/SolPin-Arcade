@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import {
     View,
     StyleSheet,
@@ -6,19 +6,21 @@ import {
     Alert,
     ScrollView,
     StatusBar,
+    Animated,
+    Easing,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import {
     Colors,
     Spacing,
     FontSizes,
-    BorderRadius,
     Difficulty,
     Duration,
-    MULTIPLIER_TABLE,
     DIFFICULTY_LABELS,
     DURATION_OPTIONS,
+    Animations,
 } from '../theme';
 import { NeonButton } from '../components/NeonButton';
 import { NeonCard } from '../components/NeonCard';
@@ -26,73 +28,54 @@ import { GlowText } from '../components/GlowText';
 import { useGameStore } from '../store/gameStore';
 import { useWalletStore } from '../store/walletStore';
 import { buildStakeTransaction } from '../solana/transactions';
-import { openPhantomLink, buildSignAndSendUrl } from '../solana/phantom';
 import { generateGameSeed } from '../solana/anticheat';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Setup'>;
 
-export const SetupScreen: React.FC<Props> = ({ navigation }) => {
-    const {
-        stakeAmount,
-        duration,
-        difficulty,
-        multiplier,
-        setStakeAmount,
-        setDuration,
-        setDifficulty,
-        setStatus,
-        setTimeRemaining,
-    } = useGameStore();
+const useFadeInDown = (delay: number = 0) => {
+    const opacity = useRef(new Animated.Value(0)).current;
+    const translateY = useRef(new Animated.Value(16)).current;
+    useEffect(() => {
+        const t = setTimeout(() => {
+            Animated.parallel([
+                Animated.timing(opacity, { toValue: 1, duration: Animations.smooth, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+                Animated.spring(translateY, { toValue: 0, tension: 200, friction: 18, useNativeDriver: true }),
+            ]).start();
+        }, delay);
+        return () => clearTimeout(t);
+    }, []);
+    return { opacity, transform: [{ translateY }] };
+};
 
+export const SetupScreen: React.FC<Props> = ({ navigation }) => {
+    const insets = useSafeAreaInsets();
+    const {
+        stakeAmount, duration, difficulty, multiplier,
+        setStakeAmount, setDuration, setDifficulty, setStatus, setTimeRemaining,
+    } = useGameStore();
     const { publicKey, balance, session } = useWalletStore();
     const [loading, setLoading] = useState(false);
 
-    const estimatedPayout = useMemo(
-        () => (stakeAmount * multiplier).toFixed(4),
-        [stakeAmount, multiplier],
-    );
+    const estimatedPayout = useMemo(() => (stakeAmount * multiplier).toFixed(4), [stakeAmount, multiplier]);
+    const canStart = stakeAmount > 0 && stakeAmount <= balance && publicKey !== null && !loading;
 
-    const canStart =
-        stakeAmount > 0 &&
-        stakeAmount <= balance &&
-        publicKey !== null &&
-        !loading;
+    const anim0 = useFadeInDown(50);
+    const anim1 = useFadeInDown(50 + Animations.stagger);
+    const anim2 = useFadeInDown(50 + Animations.stagger * 2);
+    const anim3 = useFadeInDown(50 + Animations.stagger * 3);
+    const anim4 = useFadeInDown(50 + Animations.stagger * 4);
+    const anim5 = useFadeInDown(50 + Animations.stagger * 5);
 
     const handleStart = useCallback(async () => {
-        if (!publicKey || !session) {
-            Alert.alert('Error', 'Wallet not connected');
-            return;
-        }
-
-        if (stakeAmount > balance) {
-            Alert.alert('Insufficient Balance', 'You do not have enough SOL.');
-            return;
-        }
-
+        if (!publicKey || !session) { Alert.alert('Error', 'Wallet not connected'); return; }
+        if (stakeAmount > balance) { Alert.alert('Insufficient Balance', 'You do not have enough SOL.'); return; }
         setLoading(true);
         try {
-            // Build the stake transaction
-            const tx = await buildStakeTransaction(
-                publicKey,
-                stakeAmount,
-                duration,
-                difficulty,
-            );
-
-            // In production: send via Phantom deep link
-            // For demo, we skip the actual signing and go straight to game
-            // const url = buildSignAndSendUrl(tx, session);
-            // await openPhantomLink(url);
-
-            // Generate game seed for anti-cheat
-            const seed = await generateGameSeed();
-
-            // Set game state
+            await buildStakeTransaction(publicKey, stakeAmount, duration, difficulty);
+            await generateGameSeed();
             setTimeRemaining(duration);
             setStatus('playing');
-
-            // Navigate to game
             navigation.replace('Game');
         } catch (err: any) {
             Alert.alert('Transaction Failed', err.message || 'Something went wrong.');
@@ -102,161 +85,88 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     }, [publicKey, session, stakeAmount, balance, duration, difficulty, navigation]);
 
     return (
-        <ScrollView
-            style={styles.container}
-            contentContainerStyle={styles.content}
-        >
+        <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.lg }]}>
             <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
 
-            <GlowText color={Colors.neonPurple} size="xl" align="center">
-                Game Setup
-            </GlowText>
+            <Animated.View style={anim0}>
+                <GlowText color={Colors.textPrimary} size="xl" align="center" weight="700" glow={0}>Game Setup</GlowText>
+            </Animated.View>
 
-            {/* Stake Amount */}
-            <NeonCard glowColor={Colors.neonBlue} style={styles.section}>
-                <GlowText color={Colors.textSecondary} size="sm">
-                    STAKE AMOUNT (SOL)
-                </GlowText>
-                <TextInput
-                    style={styles.input}
-                    value={stakeAmount.toString()}
-                    onChangeText={(text) => {
-                        const v = parseFloat(text) || 0;
-                        setStakeAmount(v);
-                    }}
-                    keyboardType="decimal-pad"
-                    placeholderTextColor={Colors.textMuted}
-                    placeholder="0.1"
-                />
-                <GlowText color={Colors.textMuted} size="xs">
-                    Available: {balance.toFixed(4)} SOL
-                </GlowText>
-            </NeonCard>
+            <Animated.View style={anim1}>
+                <NeonCard style={styles.section}>
+                    <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>STAKE AMOUNT (SOL)</GlowText>
+                    <TextInput
+                        style={styles.input}
+                        value={stakeAmount.toString()}
+                        onChangeText={(text) => setStakeAmount(parseFloat(text) || 0)}
+                        keyboardType="decimal-pad"
+                        placeholderTextColor={Colors.textMuted}
+                        placeholder="0.1"
+                    />
+                    <GlowText color={Colors.textMuted} size="xs" glow={0}>Available: {balance.toFixed(4)} SOL</GlowText>
+                </NeonCard>
+            </Animated.View>
 
-            {/* Duration Selector */}
-            <NeonCard glowColor={Colors.neonPurple} style={styles.section}>
-                <GlowText color={Colors.textSecondary} size="sm">
-                    TIME DURATION
-                </GlowText>
-                <View style={styles.optionRow}>
-                    {DURATION_OPTIONS.map((d) => (
-                        <NeonButton
-                            key={d}
-                            title={`${d}s`}
-                            variant={duration === d ? 'primary' : 'secondary'}
-                            size="sm"
-                            onPress={() => setDuration(d)}
-                            style={duration === d ? [styles.optionBtn, styles.optionBtnActive] : styles.optionBtn}
-                        />
-                    ))}
-                </View>
-            </NeonCard>
+            <Animated.View style={anim2}>
+                <NeonCard style={styles.section}>
+                    <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>TIME DURATION</GlowText>
+                    <View style={styles.optionRow}>
+                        {DURATION_OPTIONS.map((d) => (
+                            <NeonButton key={d} title={`${d}s`} variant={duration === d ? 'primary' : 'secondary'} size="sm"
+                                onPress={() => setDuration(d)}
+                                style={[styles.optionBtn, duration === d ? styles.optionBtnActive : undefined]}
+                            />
+                        ))}
+                    </View>
+                </NeonCard>
+            </Animated.View>
 
-            {/* Difficulty Selector */}
-            <NeonCard glowColor={Colors.neonPink} style={styles.section}>
-                <GlowText color={Colors.textSecondary} size="sm">
-                    DIFFICULTY
-                </GlowText>
-                <View style={styles.optionRow}>
-                    {(['easy', 'medium', 'hard'] as Difficulty[]).map((d) => (
-                        <NeonButton
-                            key={d}
-                            title={DIFFICULTY_LABELS[d]}
-                            variant={difficulty === d ? 'primary' : 'secondary'}
-                            size="sm"
-                            onPress={() => setDifficulty(d)}
-                            style={difficulty === d ? [styles.optionBtn, styles.optionBtnActive] : styles.optionBtn}
-                        />
-                    ))}
-                </View>
-            </NeonCard>
+            <Animated.View style={anim3}>
+                <NeonCard style={styles.section}>
+                    <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>DIFFICULTY</GlowText>
+                    <View style={styles.optionRow}>
+                        {(['easy', 'medium', 'hard'] as Difficulty[]).map((d) => (
+                            <NeonButton key={d} title={DIFFICULTY_LABELS[d]} variant={difficulty === d ? 'primary' : 'secondary'} size="sm"
+                                onPress={() => setDifficulty(d)}
+                                style={[styles.optionBtn, difficulty === d ? styles.optionBtnActive : undefined]}
+                            />
+                        ))}
+                    </View>
+                </NeonCard>
+            </Animated.View>
 
-            {/* Preview Card */}
-            <NeonCard glowColor={Colors.neonGreen} style={styles.section}>
-                <View style={styles.previewRow}>
-                    <GlowText color={Colors.textSecondary} size="body">
-                        Multiplier
-                    </GlowText>
-                    <GlowText color={Colors.neonYellow} size="xl">
-                        {multiplier.toFixed(1)}x
-                    </GlowText>
-                </View>
-                <View style={styles.previewRow}>
-                    <GlowText color={Colors.textSecondary} size="body">
-                        Estimated Payout
-                    </GlowText>
-                    <GlowText color={Colors.neonGreen} size="xl">
-                        {estimatedPayout} SOL
-                    </GlowText>
-                </View>
-            </NeonCard>
+            <Animated.View style={anim4}>
+                <NeonCard style={styles.section}>
+                    <View style={styles.previewRow}>
+                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Multiplier</GlowText>
+                        <GlowText color={Colors.textPrimary} size="xl" weight="700" glow={0}>{multiplier.toFixed(1)}x</GlowText>
+                    </View>
+                    <View style={[styles.previewRow, styles.previewRowBorder]}>
+                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Estimated Payout</GlowText>
+                        <GlowText color={Colors.success} size="xl" weight="700" glow={0}>{estimatedPayout} SOL</GlowText>
+                    </View>
+                </NeonCard>
+            </Animated.View>
 
-            {/* Start Button */}
-            <NeonButton
-                title={loading ? 'Staking...' : 'Start Game'}
-                onPress={handleStart}
-                disabled={!canStart}
-                loading={loading}
-                variant="primary"
-                size="lg"
-                style={styles.startBtn}
-            />
-
-            <NeonButton
-                title="Back"
-                onPress={() => navigation.goBack()}
-                variant="secondary"
-                size="sm"
-                style={styles.backBtn}
-            />
+            <Animated.View style={anim5}>
+                <NeonButton title={loading ? 'Staking...' : 'Start Game'} onPress={handleStart} disabled={!canStart} loading={loading} variant="primary" size="lg" style={styles.startBtn} />
+                <NeonButton title="Back" onPress={() => navigation.goBack()} variant="secondary" size="sm" style={styles.backBtn} />
+            </Animated.View>
         </ScrollView>
     );
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: Colors.bg,
-    },
-    content: {
-        padding: Spacing.lg,
-        paddingTop: Spacing.xxl,
-    },
-    section: {
-        marginTop: Spacing.md,
-    },
-    input: {
-        color: Colors.neonBlue,
-        fontSize: FontSizes.xxl,
-        fontWeight: '700',
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border,
-        paddingVertical: Spacing.sm,
-        marginVertical: Spacing.sm,
-        fontFamily: 'monospace',
-    },
-    optionRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginTop: Spacing.sm,
-        gap: Spacing.sm,
-    },
-    optionBtn: {
-        flex: 1,
-    },
-    optionBtnActive: {
-        backgroundColor: 'rgba(0, 212, 255, 0.15)',
-    },
-    previewRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingVertical: Spacing.xs,
-    },
-    startBtn: {
-        marginTop: Spacing.xl,
-    },
-    backBtn: {
-        marginTop: Spacing.md,
-    },
+    container: { flex: 1, backgroundColor: Colors.bg },
+    content: { paddingHorizontal: Spacing.lg },
+    section: { marginTop: Spacing.md },
+    sectionLabel: { letterSpacing: 1.5, marginBottom: Spacing.xs },
+    input: { color: Colors.textPrimary, fontSize: FontSizes.xxl, fontWeight: '700', borderBottomWidth: 1, borderBottomColor: Colors.border, paddingVertical: Spacing.sm, marginVertical: Spacing.sm },
+    optionRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.sm, gap: Spacing.sm },
+    optionBtn: { flex: 1 },
+    optionBtnActive: { backgroundColor: Colors.bgSelected },
+    previewRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Spacing.xs },
+    previewRowBorder: { marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.border },
+    startBtn: { marginTop: Spacing.lg },
+    backBtn: { marginTop: Spacing.sm + 4 },
 });

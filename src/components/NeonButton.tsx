@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useCallback, useRef } from 'react';
 import {
-    TouchableOpacity,
+    Pressable,
     Text,
     StyleSheet,
     ViewStyle,
     TextStyle,
     ActivityIndicator,
+    Animated,
 } from 'react-native';
-import { Colors, BorderRadius, FontSizes, Spacing } from '../theme';
+import * as Haptics from 'expo-haptics';
+import { Colors, FontSizes, ButtonSizes } from '../theme';
 
 interface NeonButtonProps {
     title: string;
@@ -15,18 +17,19 @@ interface NeonButtonProps {
     variant?: 'primary' | 'secondary' | 'danger';
     disabled?: boolean;
     loading?: boolean;
-    style?: ViewStyle | ViewStyle[];
+    style?: ViewStyle | (ViewStyle | undefined)[];
     textStyle?: TextStyle;
     size?: 'sm' | 'md' | 'lg';
+    haptic?: boolean;
 }
 
 const VARIANT_COLORS = {
-    primary: Colors.neonBlue,
-    secondary: Colors.neonPurple,
+    primary: Colors.textPrimary,
+    secondary: Colors.textSecondary,
     danger: Colors.danger,
 };
 
-export const NeonButton: React.FC<NeonButtonProps> = ({
+export const NeonButton: React.FC<NeonButtonProps> = React.memo(({
     title,
     onPress,
     variant = 'primary',
@@ -35,76 +38,89 @@ export const NeonButton: React.FC<NeonButtonProps> = ({
     style,
     textStyle,
     size = 'md',
+    haptic = true,
 }) => {
+    const scaleAnim = useRef(new Animated.Value(1)).current;
     const color = VARIANT_COLORS[variant];
-    const sizeStyles = SIZE_MAP[size];
+    const sizeConfig = ButtonSizes[size];
+
+    const handlePressIn = useCallback(() => {
+        Animated.spring(scaleAnim, {
+            toValue: 0.97,
+            tension: 300,
+            friction: 15,
+            useNativeDriver: true,
+        }).start();
+    }, [scaleAnim]);
+
+    const handlePressOut = useCallback(() => {
+        Animated.spring(scaleAnim, {
+            toValue: 1,
+            tension: 300,
+            friction: 15,
+            useNativeDriver: true,
+        }).start();
+    }, [scaleAnim]);
+
+    const handlePress = useCallback(() => {
+        if (haptic) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
+        }
+        onPress();
+    }, [onPress, haptic]);
 
     return (
-        <TouchableOpacity
-            onPress={onPress}
-            disabled={disabled || loading}
-            activeOpacity={0.7}
-            style={[
-                styles.button,
-                sizeStyles.button,
-                {
-                    borderColor: color,
-                    shadowColor: color,
-                    opacity: disabled ? 0.4 : 1,
-                },
-                style,
-            ]}
-        >
-            {loading ? (
-                <ActivityIndicator color={color} size="small" />
-            ) : (
-                <Text
-                    style={[
-                        styles.text,
-                        sizeStyles.text,
-                        { color, textShadowColor: color },
-                        textStyle,
-                    ]}
-                >
-                    {title}
-                </Text>
-            )}
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+            <Pressable
+                onPress={handlePress}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                disabled={disabled || loading}
+                style={[
+                    styles.button,
+                    {
+                        height: sizeConfig.height,
+                        paddingHorizontal: sizeConfig.paddingHorizontal,
+                        borderColor: disabled ? Colors.border : Colors.borderLight,
+                        opacity: disabled ? 0.4 : 1,
+                    },
+                    style,
+                ]}
+            >
+                {loading ? (
+                    <ActivityIndicator color={color} size="small" />
+                ) : (
+                    <Text
+                        style={[
+                            styles.text,
+                            {
+                                color,
+                                fontSize: size === 'sm' ? FontSizes.sm : size === 'lg' ? FontSizes.md : FontSizes.body,
+                            },
+                            textStyle,
+                        ]}
+                    >
+                        {title}
+                    </Text>
+                )}
+            </Pressable>
+        </Animated.View>
     );
-};
+});
 
-const SIZE_MAP = {
-    sm: StyleSheet.create({
-        button: { paddingVertical: Spacing.xs, paddingHorizontal: Spacing.md },
-        text: { fontSize: FontSizes.sm },
-    }),
-    md: StyleSheet.create({
-        button: { paddingVertical: Spacing.sm + 4, paddingHorizontal: Spacing.lg },
-        text: { fontSize: FontSizes.md },
-    }),
-    lg: StyleSheet.create({
-        button: { paddingVertical: Spacing.md, paddingHorizontal: Spacing.xl },
-        text: { fontSize: FontSizes.lg },
-    }),
-};
+NeonButton.displayName = 'NeonButton';
 
 const styles = StyleSheet.create({
     button: {
-        borderWidth: 1.5,
-        borderRadius: BorderRadius.lg,
+        borderWidth: 1,
+        borderRadius: 18,
         alignItems: 'center',
         justifyContent: 'center',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.8,
-        shadowRadius: 12,
-        elevation: 8,
-        backgroundColor: 'rgba(0,0,0,0.3)',
+        backgroundColor: 'rgba(255, 255, 255, 0.03)',
     },
     text: {
-        fontWeight: '700',
-        letterSpacing: 1.2,
+        fontWeight: '600',
+        letterSpacing: 0.8,
         textTransform: 'uppercase',
-        textShadowOffset: { width: 0, height: 0 },
-        textShadowRadius: 10,
     },
 });

@@ -6,13 +6,6 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
-import Animated, {
-    useSharedValue,
-    useAnimatedStyle,
-    withTiming,
-    cancelAnimation,
-    runOnJS,
-} from 'react-native-reanimated';
 
 import { PinballEngine, EngineState } from './engine';
 import {
