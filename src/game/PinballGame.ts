@@ -62,51 +62,40 @@ const walls=[
   // Upper side walls (vertical)
   {x1:24,y1:48,x2:24,y2:TH-320},
   {x1:TW-24,y1:48,x2:TW-24,y2:TH-320},
-  // Lower side walls — angled 6px inward so ball slides off, not sticks
+  // Lower side walls — angled 6px inward
   {x1:24,y1:TH-320,x2:30,y2:TH-145},
   {x1:TW-24,y1:TH-320,x2:TW-30,y2:TH-145},
   // Top wall
   {x1:24,y1:48,x2:TW-24,y2:48},
-  // Gutters — angled from lower wall end toward flipper zone
+  // Gutters
   {x1:30,y1:TH-145,x2:116,y2:TH-67},
   {x1:TW-30,y1:TH-145,x2:TW-116,y2:TH-67},
-  // Funnel walls — smooth slope from gutter end toward drain
+  // Funnel walls
   {x1:120,y1:TH-63,x2:160,y2:TH-22},
   {x1:TW-120,y1:TH-63,x2:TW-160,y2:TH-22},
-  // slingshots — walls GAPPED by 4px at each vertex (no shared endpoints)
-  // Left slingshot
-  {x1:72,y1:TH-276,x2:52,y2:TH-174},  // top to bottom-left (shortened)
-  {x1:48,y1:TH-166,x2:116,y2:TH-130},  // bottom-left to bottom-right
-  {x1:114,y1:TH-132,x2:68,y2:TH-276},  // bottom-right back to top
-  // Right slingshot
-  {x1:TW-72,y1:TH-276,x2:TW-52,y2:TH-174},
-  {x1:TW-48,y1:TH-166,x2:TW-116,y2:TH-130},
-  {x1:TW-114,y1:TH-132,x2:TW-68,y2:TH-276},
-  // arches — gapped at corners
+  // Slingshots — OPEN V-shapes (2 walls, NO closing wall = no concave trap)
+  // Left slingshot V
+  {x1:72,y1:TH-276,x2:50,y2:TH-195},  // outer arm
+  {x1:72,y1:TH-276,x2:110,y2:TH-195},  // inner arm
+  // Right slingshot V
+  {x1:TW-72,y1:TH-276,x2:TW-50,y2:TH-195},
+  {x1:TW-72,y1:TH-276,x2:TW-110,y2:TH-195},
+  // arches — gapped
   {x1:24,y1:48,x2:64,y2:88},
   {x1:68,y1:92,x2:68,y2:155},
   {x1:TW-24,y1:48,x2:TW-64,y2:88},
   {x1:TW-68,y1:92,x2:TW-68,y2:155},
   // launch lane
   {x1:TW-14,y1:68,x2:TW-14,y2:TH-25},{x1:TW-56,y1:68,x2:TW-56,y2:215},{x1:TW-56,y1:215,x2:TW-24,y2:48},
-  // center V — gapped at tips
+  // center V — open ends, no closing wall
   {x1:145,y1:475,x2:127,y2:526},
   {x1:TW-145,y1:475,x2:TW-127,y2:526},
   // side lanes
   {x1:86,y1:155,x2:86,y2:250},{x1:TW-86,y1:155,x2:TW-86,y2:250},
 ];
 
-// ──── CORNER BUMPERS — small circles at every vertex where walls meet ────
-// These replace sharp collision points with smooth circular deflectors
+// ──── CORNER BUMPERS — circles at wall junctions only ────
 const corners=[
-  // Slingshot vertices (left)
-  {x:70,y:TH-278,r:6},   // top of left slingshot
-  {x:50,y:TH-170,r:6},   // bottom-left of left slingshot
-  {x:118,y:TH-128,r:5},  // bottom-right of left slingshot
-  // Slingshot vertices (right)
-  {x:TW-70,y:TH-278,r:6},
-  {x:TW-50,y:TH-170,r:6},
-  {x:TW-118,y:TH-128,r:5},
   // Arch corners
   {x:66,y:90,r:5},
   {x:TW-66,y:90,r:5},
@@ -119,6 +108,14 @@ const corners=[
   // Lower side wall junction
   {x:30,y:TH-145,r:5},
   {x:TW-30,y:TH-145,r:5},
+  // Slingshot V-point — larger, acts as slingshot kick bumper
+  {x:72,y:TH-276,r:8},
+  {x:TW-72,y:TH-276,r:8},
+  // Slingshot arm ends
+  {x:50,y:TH-195,r:5},
+  {x:110,y:TH-195,r:5},
+  {x:TW-50,y:TH-195,r:5},
+  {x:TW-110,y:TH-195,r:5},
 ];
 
 // ──── BUMPERS ────
@@ -216,24 +213,29 @@ function step(dt){
     let cv=clampV(ball.vx,ball.vy,MAX_V);ball.vx=cv.vx;ball.vy=cv.vy;
     ball.x+=ball.vx*60*sub;ball.y+=ball.vy*60*sub;
 
-    // ── Wall collisions ──
+    // ── Wall collisions (accumulate normals to prevent jitter) ──
+    let wnx=0,wny=0,wcnt=0,wpx=0,wpy=0;
     for(const w of walls){
       const{d,cx,cy}=ptSeg(ball.x,ball.y,w.x1,w.y1,w.x2,w.y2);
       if(d<BR){
         const nx=(ball.x-cx)/(d||1),ny=(ball.y-cy)/(d||1);
-        ball.x=cx+nx*(BR+.3);ball.y=cy+ny*(BR+.3);
-        if(draining){
-          // In drain zone: absorb all bounce, just slide down
-          ball.vx*=0.5;
-          if(ball.vy<0)ball.vy=0; // prevent upward bounce in drain
-        }else{
-          const b=refl(ball.vx,ball.vy,nx,ny,wallRest);
-          ball.vx=b.vx;ball.vy=b.vy;
-          // Dampen extreme horizontal bounces
-          if(Math.abs(ball.vx)>MAX_V*.7)ball.vx*=.7;
-          const spd=Math.hypot(ball.vx,ball.vy);
-          if(spd>1.5){part(cx,cy,2);sndWall();send('haptic',{level:'light'});}
-        }
+        ball.x=cx+nx*(BR+.5);ball.y=cy+ny*(BR+.5);
+        wnx+=nx;wny+=ny;wcnt++;wpx=cx;wpy=cy;
+      }
+    }
+    if(wcnt>0){
+      // Average normal from all contacted walls
+      const nd=Math.hypot(wnx,wny)||1;
+      const fnx=wnx/nd,fny=wny/nd;
+      if(draining){
+        ball.vx*=0.5;
+        if(ball.vy<0)ball.vy=0;
+      }else{
+        const b=refl(ball.vx,ball.vy,fnx,fny,wallRest);
+        ball.vx=b.vx;ball.vy=b.vy;
+        if(Math.abs(ball.vx)>MAX_V*.7)ball.vx*=.7;
+        const spd=Math.hypot(ball.vx,ball.vy);
+        if(spd>1.5){part(wpx,wpy,2);sndWall();send('haptic',{level:'light'});}
       }
     }
 
@@ -385,9 +387,9 @@ function draw(t){
   for(const w of walls)gLine(w.x1,w.y1,w.x2,w.y2,.4,2.5,6);
   X.lineCap='butt';
 
-  // Slingshot fills
+  // Slingshot fills (V-shape)
   X.globalAlpha=.05;X.fillStyle='#fff';
-  for(const tri of[[[70,TH-278],[50,TH-170],[118,TH-128]],[[TW-70,TH-278],[TW-50,TH-170],[TW-118,TH-128]]]){
+  for(const tri of[[[72,TH-276],[50,TH-195],[110,TH-195]],[[TW-72,TH-276],[TW-50,TH-195],[TW-110,TH-195]]]){
     X.beginPath();X.moveTo(tx(tri[0][0])+sx,ty(tri[0][1])+sy);tri.slice(1).forEach(p=>X.lineTo(tx(p[0])+sx,ty(p[1])+sy));X.closePath();X.fill();
   }
   X.globalAlpha=1;
