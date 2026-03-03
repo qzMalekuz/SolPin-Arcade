@@ -68,24 +68,57 @@ const walls=[
   // Top wall
   {x1:24,y1:48,x2:TW-24,y2:48},
   // Gutters — angled from lower wall end toward flipper zone
-  {x1:30,y1:TH-145,x2:118,y2:TH-65},
-  {x1:TW-30,y1:TH-145,x2:TW-118,y2:TH-65},
+  {x1:30,y1:TH-145,x2:116,y2:TH-67},
+  {x1:TW-30,y1:TH-145,x2:TW-116,y2:TH-67},
   // Funnel walls — smooth slope from gutter end toward drain
-  // These end ABOVE the drain so ball can fall freely into drain
-  {x1:118,y1:TH-65,x2:160,y2:TH-22},
-  {x1:TW-118,y1:TH-65,x2:TW-160,y2:TH-22},
-  // slingshots
-  {x1:70,y1:TH-280,x2:50,y2:TH-170},{x1:50,y1:TH-170,x2:118,y2:TH-128},{x1:118,y1:TH-128,x2:70,y2:TH-280},
-  {x1:TW-70,y1:TH-280,x2:TW-50,y2:TH-170},{x1:TW-50,y1:TH-170,x2:TW-118,y2:TH-128},{x1:TW-118,y1:TH-128,x2:TW-70,y2:TH-280},
-  // arches
-  {x1:24,y1:48,x2:66,y2:90},{x1:66,y1:90,x2:66,y2:155},
-  {x1:TW-24,y1:48,x2:TW-66,y2:90},{x1:TW-66,y1:90,x2:TW-66,y2:155},
+  {x1:120,y1:TH-63,x2:160,y2:TH-22},
+  {x1:TW-120,y1:TH-63,x2:TW-160,y2:TH-22},
+  // slingshots — walls GAPPED by 4px at each vertex (no shared endpoints)
+  // Left slingshot
+  {x1:72,y1:TH-276,x2:52,y2:TH-174},  // top to bottom-left (shortened)
+  {x1:48,y1:TH-166,x2:116,y2:TH-130},  // bottom-left to bottom-right
+  {x1:114,y1:TH-132,x2:68,y2:TH-276},  // bottom-right back to top
+  // Right slingshot
+  {x1:TW-72,y1:TH-276,x2:TW-52,y2:TH-174},
+  {x1:TW-48,y1:TH-166,x2:TW-116,y2:TH-130},
+  {x1:TW-114,y1:TH-132,x2:TW-68,y2:TH-276},
+  // arches — gapped at corners
+  {x1:24,y1:48,x2:64,y2:88},
+  {x1:68,y1:92,x2:68,y2:155},
+  {x1:TW-24,y1:48,x2:TW-64,y2:88},
+  {x1:TW-68,y1:92,x2:TW-68,y2:155},
   // launch lane
   {x1:TW-14,y1:68,x2:TW-14,y2:TH-25},{x1:TW-56,y1:68,x2:TW-56,y2:215},{x1:TW-56,y1:215,x2:TW-24,y2:48},
-  // center V
-  {x1:145,y1:475,x2:125,y2:530},{x1:TW-145,y1:475,x2:TW-125,y2:530},
+  // center V — gapped at tips
+  {x1:145,y1:475,x2:127,y2:526},
+  {x1:TW-145,y1:475,x2:TW-127,y2:526},
   // side lanes
   {x1:86,y1:155,x2:86,y2:250},{x1:TW-86,y1:155,x2:TW-86,y2:250},
+];
+
+// ──── CORNER BUMPERS — small circles at every vertex where walls meet ────
+// These replace sharp collision points with smooth circular deflectors
+const corners=[
+  // Slingshot vertices (left)
+  {x:70,y:TH-278,r:6},   // top of left slingshot
+  {x:50,y:TH-170,r:6},   // bottom-left of left slingshot
+  {x:118,y:TH-128,r:5},  // bottom-right of left slingshot
+  // Slingshot vertices (right)
+  {x:TW-70,y:TH-278,r:6},
+  {x:TW-50,y:TH-170,r:6},
+  {x:TW-118,y:TH-128,r:5},
+  // Arch corners
+  {x:66,y:90,r:5},
+  {x:TW-66,y:90,r:5},
+  // Gutter-funnel junction
+  {x:118,y:TH-65,r:5},
+  {x:TW-118,y:TH-65,r:5},
+  // Center V tips
+  {x:126,y:528,r:5},
+  {x:TW-126,y:528,r:5},
+  // Lower side wall junction
+  {x:30,y:TH-145,r:5},
+  {x:TW-30,y:TH-145,r:5},
 ];
 
 // ──── BUMPERS ────
@@ -201,6 +234,17 @@ function step(dt){
           const spd=Math.hypot(ball.vx,ball.vy);
           if(spd>1.5){part(cx,cy,2);sndWall();send('haptic',{level:'light'});}
         }
+      }
+    }
+
+    // ── Corner bumper collisions (smooth circular deflectors at vertices) ──
+    for(const c of corners){
+      const dx=ball.x-c.x,dy=ball.y-c.y,d=Math.hypot(dx,dy),mn=BR+c.r;
+      if(d<mn&&d>.01){
+        const nx=dx/d,ny=dy/d;
+        ball.x=c.x+nx*(mn+.5);ball.y=c.y+ny*(mn+.5);
+        const b=refl(ball.vx,ball.vy,nx,ny,0.6);
+        ball.vx=b.vx;ball.vy=b.vy;
       }
     }
 
@@ -343,10 +387,14 @@ function draw(t){
 
   // Slingshot fills
   X.globalAlpha=.05;X.fillStyle='#fff';
-  for(const tri of[[[70,TH-280],[50,TH-170],[118,TH-128]],[[TW-70,TH-280],[TW-50,TH-170],[TW-118,TH-128]]]){
+  for(const tri of[[[70,TH-278],[50,TH-170],[118,TH-128]],[[TW-70,TH-278],[TW-50,TH-170],[TW-118,TH-128]]]){
     X.beginPath();X.moveTo(tx(tri[0][0])+sx,ty(tri[0][1])+sy);tri.slice(1).forEach(p=>X.lineTo(tx(p[0])+sx,ty(p[1])+sy));X.closePath();X.fill();
   }
   X.globalAlpha=1;
+
+  // Corner bumpers (subtle circles at vertices)
+  X.strokeStyle='rgba(255,255,255,0.08)';X.lineWidth=ts(1);
+  for(const c of corners){X.beginPath();X.arc(tx(c.x)+sx,ty(c.y)+sy,ts(c.r),0,T2);X.stroke();}
 
   // Dot ring
   for(const d of dotRing){const p=.3+.7*Math.sin(d.ph+t*2);X.fillStyle='rgba(255,255,255,'+(p>.55?.5:.15)+')';X.shadowColor='rgba(255,255,255,.3)';X.shadowBlur=ts(p>.55?6:1);X.beginPath();X.arc(tx(d.x)+sx,ty(d.y)+sy,ts(d.r),0,T2);X.fill();}
