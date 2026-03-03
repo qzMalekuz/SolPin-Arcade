@@ -6,7 +6,7 @@ A minimal, monochrome 2D pinball staking game built with **Expo + TypeScript + S
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -38,7 +38,7 @@ solana airdrop 2 <YOUR_PHANTOM_DEVNET_ADDRESS> --url devnet
 
 ---
 
-## 📱 App Screens
+## App Screens
 
 | Screen | Description |
 |--------|-------------|
@@ -50,7 +50,7 @@ solana airdrop 2 <YOUR_PHANTOM_DEVNET_ADDRESS> --url devnet
 
 ---
 
-## 🕹 Game Engine
+## Game Engine
 
 The pinball engine is a self-contained HTML5 Canvas game rendered inside a `react-native-webview`. All physics, collision detection, rendering, and sound are handled in a single file (`PinballGame.ts`) that generates the complete HTML/JS.
 
@@ -104,7 +104,7 @@ Physics are **identical** across all modes. Only geometry/speed differs:
 
 ---
 
-## 🔐 Solana Integration
+## Solana Integration
 
 ### Wallet Connection
 
@@ -134,7 +134,7 @@ Located in `/anchor/programs/solpin/src/lib.rs`:
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 ├── App.tsx                          # Root navigator + polyfills
@@ -177,7 +177,7 @@ Located in `/anchor/programs/solpin/src/lib.rs`:
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
@@ -195,7 +195,7 @@ Located in `/anchor/programs/solpin/src/lib.rs`:
 
 ---
 
-## 🏗 Build & Deploy
+## Build & Deploy
 
 ### Expo Dev Build
 
