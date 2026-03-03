@@ -77,31 +77,30 @@ const walls=[
   // Ball exits through open top gap naturally
   {x1:TW-14,y1:68,x2:TW-14,y2:TH-25},
   {x1:TW-56,y1:68,x2:TW-56,y2:215},
-  // Slingshot triangles — moved 20px inward from walls
-  // Left: top (65,TH-285), outer (55,TH-175), inner (100,TH-140)
-  // Min gap from left wall (x≈26): 55-26 = 29px ✓ (>20px)
-  {x1:65,y1:TH-285,x2:100,y2:TH-140},  // top to inner (faces playfield)
-  {x1:55,y1:TH-175,x2:100,y2:TH-140},  // outer to inner (faces playfield)
-  // Right: mirrored — min gap from right wall (x≈394): 394-365 = 29px ✓
-  {x1:TW-65,y1:TH-285,x2:TW-100,y2:TH-140},
-  {x1:TW-55,y1:TH-175,x2:TW-100,y2:TH-140},
+  // Slingshot triangles — REAL collision, moved well inward (40px+ gap from walls)
+  // Left: top (85,TH-265), outer (75,TH-190), inner (120,TH-165)
+  {x1:85,y1:TH-265,x2:120,y2:TH-165},   // top to inner (faces center)
+  {x1:75,y1:TH-190,x2:120,y2:TH-165},   // outer to inner (faces up)
+  // Right: mirrored
+  {x1:TW-85,y1:TH-265,x2:TW-120,y2:TH-165},
+  {x1:TW-75,y1:TH-190,x2:TW-120,y2:TH-165},
 ];
 
 // ──── VISUAL-ONLY LINES (drawn but NO collision) ────
 const visualOnly=[
-  // Slingshot triangle edges facing wall (decorative only — no collision)
-  {x1:65,y1:TH-285,x2:55,y2:TH-175},
-  {x1:TW-65,y1:TH-285,x2:TW-55,y2:TH-175},
+  // Wall-facing edges of slingshot triangles (decorative only)
+  {x1:85,y1:TH-265,x2:75,y2:TH-190},
+  {x1:TW-85,y1:TH-265,x2:TW-75,y2:TH-190},
 ];
 
 // ──── CORNER BUMPERS — circles at every wall vertex ────
 const corners=[
-  // Slingshot triangle vertices (8px radius)
-  {x:65,y:TH-285,r:8},{x:55,y:TH-175,r:8},{x:100,y:TH-140,r:8},
-  {x:TW-65,y:TH-285,r:8},{x:TW-55,y:TH-175,r:8},{x:TW-100,y:TH-140,r:8},
+  // Slingshot triangle vertices
+  {x:85,y:TH-265,r:8},{x:75,y:TH-190,r:8},{x:120,y:TH-165,r:8},
+  {x:TW-85,y:TH-265,r:8},{x:TW-75,y:TH-190,r:8},{x:TW-120,y:TH-165,r:8},
   // Gutter-funnel junction
   {x:118,y:TH-68,r:8},{x:TW-118,y:TH-68,r:8},
-  // Arch rail ends (downward escape slope)
+  // Arch rail ends
   {x:62,y:120,r:6},{x:TW-62,y:120,r:6},
   // Wall-gutter junction
   {x:28,y:TH-145,r:8},{x:TW-28,y:TH-145,r:8},
@@ -125,8 +124,11 @@ const bumpers=[
   // Lower bumpers
   {x:TW/2-75,y:590,r:16,pts:120,g:0},     // 120 left
   {x:TW/2+75,y:590,r:16,pts:120,g:0},     // 120 right
-  // Center deflector (replaces center V lines — no V-trap possible)
+  // Center deflector
   {x:TW/2,y:510,r:12,pts:80,g:0},
+  // Slingshot bumpers (small, at triangle centers for scoring)
+  {x:93,y:TH-207,r:10,pts:80,g:0},
+  {x:TW-93,y:TH-207,r:10,pts:80,g:0},
 ];
 
 // Dot ring around 500 bumper
@@ -356,9 +358,9 @@ function draw(t){
   for(const w of visualOnly)gLine(w.x1,w.y1,w.x2,w.y2,.4,2.5,6);
   X.lineCap='butt';
 
-  // Slingshot triangle fills (decorative — matches reference)
+  // Slingshot triangle fills
   X.globalAlpha=.04;X.fillStyle='#fff';
-  for(const tri of[[[65,TH-285],[55,TH-175],[100,TH-140]],[[TW-65,TH-285],[TW-55,TH-175],[TW-100,TH-140]]]){
+  for(const tri of[[[85,TH-265],[75,TH-190],[120,TH-165]],[[TW-85,TH-265],[TW-75,TH-190],[TW-120,TH-165]]]){
     X.beginPath();X.moveTo(tx(tri[0][0])+sx,ty(tri[0][1])+sy);
     tri.slice(1).forEach(p=>X.lineTo(tx(p[0])+sx,ty(p[1])+sy));X.closePath();X.fill();
   }
