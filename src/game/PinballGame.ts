@@ -70,47 +70,39 @@ const walls=[
   // Funnel to drain
   {x1:118,y1:TH-68,x2:160,y2:TH-22},
   {x1:TW-118,y1:TH-68,x2:TW-160,y2:TH-22},
-  // Upper arch rails — continuous single segment each
-  {x1:22,y1:50,x2:70,y2:155},
-  {x1:TW-22,y1:50,x2:TW-70,y2:155},
-  // Side lanes (short vertical guides, slight outward tilt)
-  {x1:82,y1:155,x2:84,y2:250},
-  {x1:TW-82,y1:155,x2:TW-84,y2:250},
-  // Launch lane
+  // Upper arch rails — SHORT, end at y=120 (no channel with side area)
+  {x1:22,y1:50,x2:62,y2:120},
+  {x1:TW-22,y1:50,x2:TW-62,y2:120},
+  // Launch lane — TWO parallel walls only, NO diagonal closing wall
+  // Ball exits through open top gap naturally
   {x1:TW-14,y1:68,x2:TW-14,y2:TH-25},
   {x1:TW-56,y1:68,x2:TW-56,y2:215},
-  {x1:TW-56,y1:215,x2:TW-22,y2:50},
-  // Slingshot triangles — OUTWARD-facing edges ONLY (2 per triangle)
-  // Left: top vertex (55,TH-285), outer vertex (35,TH-175), inner vertex (115,TH-140)
-  // Physics: top→inner (faces playfield) and outer→inner (faces playfield)
-  {x1:55,y1:TH-285,x2:115,y2:TH-140},  // left: top to inner (rightward face)
-  {x1:35,y1:TH-175,x2:115,y2:TH-140},  // left: outer to inner (upward face)
-  // Right slingshot (mirrored)
-  {x1:TW-55,y1:TH-285,x2:TW-115,y2:TH-140},
-  {x1:TW-35,y1:TH-175,x2:TW-115,y2:TH-140},
-  // Center V deflectors — outward-facing only
-  {x1:148,y1:478,x2:130,y2:530},
-  {x1:TW-148,y1:478,x2:TW-130,y2:530},
+  // Slingshot triangles — moved 20px inward from walls
+  // Left: top (65,TH-285), outer (55,TH-175), inner (100,TH-140)
+  // Min gap from left wall (x≈26): 55-26 = 29px ✓ (>20px)
+  {x1:65,y1:TH-285,x2:100,y2:TH-140},  // top to inner (faces playfield)
+  {x1:55,y1:TH-175,x2:100,y2:TH-140},  // outer to inner (faces playfield)
+  // Right: mirrored — min gap from right wall (x≈394): 394-365 = 29px ✓
+  {x1:TW-65,y1:TH-285,x2:TW-100,y2:TH-140},
+  {x1:TW-55,y1:TH-175,x2:TW-100,y2:TH-140},
 ];
 
 // ──── VISUAL-ONLY LINES (drawn but NO collision) ────
 const visualOnly=[
-  // Slingshot triangle edges facing wall (concave trap edge — visual only)
-  {x1:55,y1:TH-285,x2:35,y2:TH-175},   // left: top to outer
-  {x1:TW-55,y1:TH-285,x2:TW-35,y2:TH-175}, // right: top to outer
+  // Slingshot triangle edges facing wall (decorative only — no collision)
+  {x1:65,y1:TH-285,x2:55,y2:TH-175},
+  {x1:TW-65,y1:TH-285,x2:TW-55,y2:TH-175},
 ];
 
 // ──── CORNER BUMPERS — circles at every wall vertex ────
 const corners=[
-  // Slingshot triangle vertices (8px radius per spec)
-  {x:55,y:TH-285,r:8},{x:35,y:TH-175,r:8},{x:115,y:TH-140,r:8},
-  {x:TW-55,y:TH-285,r:8},{x:TW-35,y:TH-175,r:8},{x:TW-115,y:TH-140,r:8},
+  // Slingshot triangle vertices (8px radius)
+  {x:65,y:TH-285,r:8},{x:55,y:TH-175,r:8},{x:100,y:TH-140,r:8},
+  {x:TW-65,y:TH-285,r:8},{x:TW-55,y:TH-175,r:8},{x:TW-100,y:TH-140,r:8},
   // Gutter-funnel junction
   {x:118,y:TH-68,r:8},{x:TW-118,y:TH-68,r:8},
-  // Side lane ends
-  {x:83,y:250,r:6},{x:TW-83,y:250,r:6},
-  // Center V tips
-  {x:130,y:530,r:8},{x:TW-130,y:530,r:8},
+  // Arch rail ends (downward escape slope)
+  {x:62,y:120,r:6},{x:TW-62,y:120,r:6},
   // Wall-gutter junction
   {x:28,y:TH-145,r:8},{x:TW-28,y:TH-145,r:8},
 ];
@@ -133,6 +125,8 @@ const bumpers=[
   // Lower bumpers
   {x:TW/2-75,y:590,r:16,pts:120,g:0},     // 120 left
   {x:TW/2+75,y:590,r:16,pts:120,g:0},     // 120 right
+  // Center deflector (replaces center V lines — no V-trap possible)
+  {x:TW/2,y:510,r:12,pts:80,g:0},
 ];
 
 // Dot ring around 500 bumper
@@ -294,10 +288,10 @@ function step(dt){
     const spd=Math.hypot(ball.vx,ball.vy);
     if(spd<MIN_V){
       stuckT+=dt;
-      if(stuckT>0.25){
-        ball.vx+=lastNx*3+(Math.random()-.5)*2;
-        ball.vy+=lastNy*3;
-        if(ball.vy>-1)ball.vy=-2; // bias downward
+      if(stuckT>0.30){
+        // Impulse toward center of board
+        ball.vx+=(TW/2-ball.x)*0.02+(Math.random()-.5)*2;
+        ball.vy+=2;
         stuckT=0;
       }
     }else{stuckT=0;}
@@ -364,7 +358,7 @@ function draw(t){
 
   // Slingshot triangle fills (decorative — matches reference)
   X.globalAlpha=.04;X.fillStyle='#fff';
-  for(const tri of[[[55,TH-285],[35,TH-175],[115,TH-140]],[[TW-55,TH-285],[TW-35,TH-175],[TW-115,TH-140]]]){
+  for(const tri of[[[65,TH-285],[55,TH-175],[100,TH-140]],[[TW-65,TH-285],[TW-55,TH-175],[TW-100,TH-140]]]){
     X.beginPath();X.moveTo(tx(tri[0][0])+sx,ty(tri[0][1])+sy);
     tri.slice(1).forEach(p=>X.lineTo(tx(p[0])+sx,ty(p[1])+sy));X.closePath();X.fill();
   }
