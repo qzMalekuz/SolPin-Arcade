@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0a0a1a"
+      "backgroundColor": "#000000"
     },
     "ios": {
       "supportsTablet": false,
@@ -19,8 +19,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0a0a1a"
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#000000"
       },
       "package": "com.solpin.arcade",
       "targetSdkVersion": 34,

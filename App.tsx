@@ -30,17 +30,48 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+import * as SplashScreen from 'expo-splash-screen';
+
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
+
 export default function App() {
-  // Initialize audio on mount
+  const [appIsReady, setAppIsReady] = React.useState(false);
+
   useEffect(() => {
-    initAudio();
+    async function prepare() {
+      try {
+        // Initialize audio
+        initAudio();
+        // Artificial delay for smooth splash screen branding visibility
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        // Tell the application to render
+        setAppIsReady(true);
+      }
+    }
+
+    prepare();
+
     return () => {
       unloadAllSounds();
     };
   }, []);
 
+  const onLayoutRootView = React.useCallback(async () => {
+    if (appIsReady) {
+      await SplashScreen.hideAsync();
+    }
+  }, [appIsReady]);
+
+  if (!appIsReady) {
+    return null;
+  }
+
   return (
-    <GestureHandlerRootView style={styles.root}>
+    <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
       <NavigationContainer
         theme={{
           dark: true,
