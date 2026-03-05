@@ -11,19 +11,22 @@ A minimal, monochrome 2D pinball staking game built with **Expo + TypeScript + S
 ### Prerequisites
 
 - **Node.js** 18+
-- **Expo Go** app on your Android device
-- **Phantom** wallet on your Android device (for wallet integration)
+- **Android device** (or emulator)
+- An **MWA-compatible wallet** (e.g., Phantom, Solflare, Backpack) installed on the device
 
-### Install & Run
+> ⚠️ **Note on Expo Go:** Because this project uses the Solana Mobile Wallet Adapter (MWA 2.0) which relies on native Android modules, it is **not compatible with Expo Go**. You must use a custom development build or standalone APK.
+
+### Install & Run (Development Build)
 
 ```bash
 # Install dependencies
 npm install
 
-# Start development server
-npx expo start
+# Build and run the custom dev client on your connected Android device/emulator
+npx expo run:android
 
-# Scan the QR code with Expo Go on your Android device
+# OR, if you already have the dev client installed, just start the bundler:
+npx expo start --dev-client
 ```
 
 ### Devnet SOL
