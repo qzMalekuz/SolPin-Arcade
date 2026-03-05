@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as Linking from 'expo-linking';
 
 import {
     Colors,
@@ -30,6 +31,12 @@ import { useGameStore } from '../store/gameStore';
 import { useWalletStore } from '../store/walletStore';
 import { buildStakeTransaction } from '../solana/transactions';
 import { generateGameSeed } from '../solana/anticheat';
+import {
+    buildSignAndSendUrl,
+    parseSignAndSendResponse,
+    openPhantomLink,
+} from '../solana/phantom';
+import { mwaSignAndSendTransactions } from '../solana/mwa';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Setup'>;
@@ -54,8 +61,9 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     const {
         stakeAmount, duration, difficulty, multiplier,
         setStakeAmount, setDuration, setDifficulty, setStatus, setTimeRemaining,
+        setTxSignature,
     } = useGameStore();
-    const { publicKey, balance, session } = useWalletStore();
+    const { publicKey, balance, session, authToken } = useWalletStore();
     const [loading, setLoading] = useState(false);
 
     const estimatedPayout = useMemo(() => (stakeAmount * multiplier).toFixed(4), [stakeAmount, multiplier]);
@@ -68,22 +76,67 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     const anim4 = useFadeInDown(50 + Animations.stagger * 4);
     const anim5 = useFadeInDown(50 + Animations.stagger * 5);
 
+    // Listen for Phantom signAndSend callback
+    useEffect(() => {
+        const subscription = Linking.addEventListener('url', ({ url }) => {
+            if (url.includes('onSignAndSend')) {
+                const result = parseSignAndSendResponse(url);
+                if (result && result.signature) {
+                    setTxSignature(result.signature);
+                    setTimeRemaining(duration);
+                    setStatus('playing');
+                    navigation.replace('Game');
+                } else {
+                    Alert.alert('Staking Failed', 'Phantom did not return a valid transaction signature.');
+                }
+                setLoading(false);
+            }
+        });
+        return () => subscription.remove();
+    }, [duration, navigation, setStatus, setTimeRemaining, setTxSignature]);
+
     const handleStart = useCallback(async () => {
         if (!publicKey || !session) { Alert.alert('Error', 'Wallet not connected'); return; }
         if (stakeAmount > balance) { Alert.alert('Insufficient Balance', 'You do not have enough SOL.'); return; }
         setLoading(true);
         try {
-            await buildStakeTransaction(publicKey, stakeAmount, duration, difficulty);
             await generateGameSeed();
-            setTimeRemaining(duration);
-            setStatus('playing');
-            navigation.replace('Game');
+            const tx = await buildStakeTransaction(publicKey, stakeAmount, duration, difficulty);
+
+            // Demo mode: skip wallet, go straight to game
+            if (session === 'demo-session') {
+                setTxSignature('demo-tx');
+                setTimeRemaining(duration);
+                setStatus('playing');
+                setLoading(false);
+                navigation.replace('Game');
+                return;
+            }
+
+            // MWA mode: use signAndSendTransactions directly
+            if (session === 'mwa' && authToken) {
+                const signatures = await mwaSignAndSendTransactions([tx], authToken);
+                if (signatures.length > 0) {
+                    setTxSignature(signatures[0]);
+                    setTimeRemaining(duration);
+                    setStatus('playing');
+                    navigation.replace('Game');
+                } else {
+                    Alert.alert('Staking Failed', 'No transaction signature returned.');
+                }
+                setLoading(false);
+                return;
+            }
+
+            // Phantom deep-link fallback
+            const signUrl = buildSignAndSendUrl(tx, session);
+            await openPhantomLink(signUrl);
+            // Navigation happens in the deep-link listener above when Phantom calls back
         } catch (err: any) {
             Alert.alert('Transaction Failed', err.message || 'Something went wrong.');
-        } finally {
             setLoading(false);
         }
-    }, [publicKey, session, stakeAmount, balance, duration, difficulty, navigation]);
+    }, [publicKey, session, authToken, stakeAmount, balance, duration, difficulty, navigation, setStatus, setTimeRemaining, setTxSignature]);
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.lg }]}>

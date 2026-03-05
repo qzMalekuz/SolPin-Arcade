@@ -130,21 +130,33 @@ export const buildSignAndSendUrl = (
     session: string,
 ): string => {
     const kp = getDappKeyPair();
+    const phantomPubKey = getPhantomEncryptionPubKey();
+    if (!phantomPubKey) {
+        throw new Error('Phantom encryption public key not set. Connect wallet first.');
+    }
+
     const serialized = transaction.serialize({
         requireAllSignatures: false,
     });
 
-    const payload = {
+    const payload = JSON.stringify({
         transaction: bs58.encode(serialized),
         session,
-    };
+    });
 
-    const payloadStr = JSON.stringify(payload);
+    const nonce = nacl.randomBytes(24);
+    const encrypted = nacl.box(
+        Buffer.from(payload),
+        nonce,
+        phantomPubKey,
+        kp.secretKey,
+    );
 
     const params = new URLSearchParams({
         dapp_encryption_public_key: bs58.encode(kp.publicKey),
+        nonce: bs58.encode(nonce),
         redirect_link: getRedirectUri('onSignAndSend'),
-        payload: bs58.encode(Buffer.from(payloadStr)),
+        payload: bs58.encode(encrypted),
     });
 
     return `${PHANTOM_BASE}${PHANTOM_SIGN_AND_SEND}?${params.toString()}`;
@@ -157,16 +169,34 @@ export const buildSignTransactionUrl = (
     transaction: Transaction,
     session: string,
 ): string => {
+    const kp = getDappKeyPair();
+    const phantomPubKey = getPhantomEncryptionPubKey();
+    if (!phantomPubKey) {
+        throw new Error('Phantom encryption public key not set. Connect wallet first.');
+    }
+
     const serialized = transaction.serialize({
         requireAllSignatures: false,
     });
 
-    const params = new URLSearchParams({
-        dapp_encryption_public_key: bs58.encode(getDappKeyPair().publicKey),
-        nonce: bs58.encode(nacl.randomBytes(24)),
-        redirect_link: getRedirectUri('onSignTransaction'),
+    const payload = JSON.stringify({
         transaction: bs58.encode(serialized),
         session,
+    });
+
+    const nonce = nacl.randomBytes(24);
+    const encrypted = nacl.box(
+        Buffer.from(payload),
+        nonce,
+        phantomPubKey,
+        kp.secretKey,
+    );
+
+    const params = new URLSearchParams({
+        dapp_encryption_public_key: bs58.encode(kp.publicKey),
+        nonce: bs58.encode(nonce),
+        redirect_link: getRedirectUri('onSignTransaction'),
+        payload: bs58.encode(encrypted),
     });
 
     return `${PHANTOM_BASE}${PHANTOM_SIGN_TX}?${params.toString()}`;
@@ -174,6 +204,7 @@ export const buildSignTransactionUrl = (
 
 /**
  * Parse Phantom's response after signing and sending.
+ * Phantom returns encrypted data + nonce that must be decrypted.
  */
 export const parseSignAndSendResponse = (
     url: string
@@ -187,9 +218,78 @@ export const parseSignAndSendResponse = (
             return null;
         }
 
-        return { signature: params.signature ?? '' };
+        const phantomPubKey = getPhantomEncryptionPubKey();
+        if (!phantomPubKey) {
+            console.warn('Phantom encryption key not available for decryption');
+            return null;
+        }
+
+        const nonce = bs58.decode(params.nonce);
+        const encryptedData = bs58.decode(params.data);
+        const kp = getDappKeyPair();
+
+        const decrypted = nacl.box.open(
+            encryptedData,
+            nonce,
+            phantomPubKey,
+            kp.secretKey,
+        );
+
+        if (!decrypted) {
+            console.warn('Failed to decrypt Phantom signAndSend response');
+            return null;
+        }
+
+        const payload = JSON.parse(Buffer.from(decrypted).toString('utf-8'));
+        return { signature: payload.signature ?? '' };
     } catch (err) {
         console.warn('parseSignAndSendResponse error:', err);
+        return null;
+    }
+};
+
+/**
+ * Parse Phantom's response after signing a transaction (without sending).
+ * Returns the signed transaction bytes.
+ */
+export const parseSignTransactionResponse = (
+    url: string
+): { transaction: string } | null => {
+    try {
+        const parsed = Linking.parse(url);
+        const params = parsed.queryParams as Record<string, string>;
+
+        if (params.errorCode) {
+            console.warn('Phantom signTransaction error:', params.errorMessage);
+            return null;
+        }
+
+        const phantomPubKey = getPhantomEncryptionPubKey();
+        if (!phantomPubKey) {
+            console.warn('Phantom encryption key not available for decryption');
+            return null;
+        }
+
+        const nonce = bs58.decode(params.nonce);
+        const encryptedData = bs58.decode(params.data);
+        const kp = getDappKeyPair();
+
+        const decrypted = nacl.box.open(
+            encryptedData,
+            nonce,
+            phantomPubKey,
+            kp.secretKey,
+        );
+
+        if (!decrypted) {
+            console.warn('Failed to decrypt Phantom signTransaction response');
+            return null;
+        }
+
+        const payload = JSON.parse(Buffer.from(decrypted).toString('utf-8'));
+        return { transaction: payload.transaction ?? '' };
+    } catch (err) {
+        console.warn('parseSignTransactionResponse error:', err);
         return null;
     }
 };

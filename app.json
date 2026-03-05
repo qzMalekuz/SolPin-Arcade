@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "SolPin Arcade",
+    "name": "SolPin-Arcade",
     "slug": "solpin-arcade",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -36,12 +36,29 @@
             "BROWSABLE",
             "DEFAULT"
           ]
+        },
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "solana-wallet"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": []
+    "plugins": [],
+    "extra": {
+      "eas": {
+        "projectId": "c1370071-2395-46a7-a9c4-bed6c60e7549"
+      }
+    }
   }
 }

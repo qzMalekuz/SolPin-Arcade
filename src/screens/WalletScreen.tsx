@@ -24,6 +24,12 @@ import {
     openPhantomLink,
     truncateAddress,
 } from '../solana/phantom';
+import {
+    isMWAAvailable,
+    mwaAuthorize,
+    mwaReauthorize,
+    mwaDeauthorize,
+} from '../solana/mwa';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Wallet'>;
@@ -52,10 +58,14 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         connected,
         balance,
         session,
+        authToken,
+        walletName,
         setPublicKey,
         setConnected,
         setBalance,
         setSession,
+        setAuthToken,
+        setWalletName,
         refreshBalance,
         disconnect,
     } = useWalletStore();
@@ -65,6 +75,30 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     const actionsAnim = useFadeInDown(400);
     const footerAnim = useFadeInDown(550);
 
+    // ------------------------------------------------------------------
+    // Auto-reauthorize via MWA on mount (if auth token exists)
+    // ------------------------------------------------------------------
+    useEffect(() => {
+        if (isMWAAvailable() && authToken && !connected) {
+            mwaReauthorize(authToken)
+                .then((result) => {
+                    setPublicKey(result.publicKey);
+                    setAuthToken(result.authToken);
+                    setWalletName(result.walletName);
+                    setSession('mwa');
+                    setConnected(true);
+                    setTimeout(() => refreshBalance(), 1000);
+                })
+                .catch(() => {
+                    // Auth token expired, clear it
+                    setAuthToken(null);
+                });
+        }
+    }, []);
+
+    // ------------------------------------------------------------------
+    // Phantom deep-link callback handler (fallback)
+    // ------------------------------------------------------------------
     useEffect(() => {
         const handleInitialUrl = async () => {
             const initialUrl = await Linking.getInitialURL();
@@ -100,7 +134,30 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         [setPublicKey, setSession, setConnected, refreshBalance],
     );
 
-    const handleConnect = useCallback(async () => {
+    // ------------------------------------------------------------------
+    // MWA Connect (primary on Android)
+    // ------------------------------------------------------------------
+    const handleMWAConnect = useCallback(async () => {
+        try {
+            const result = await mwaAuthorize();
+            setPublicKey(result.publicKey);
+            setAuthToken(result.authToken);
+            setWalletName(result.walletName);
+            setSession('mwa');
+            setConnected(true);
+            setTimeout(() => refreshBalance(), 1000);
+        } catch (err: any) {
+            Alert.alert(
+                'MWA Connection Failed',
+                err.message || 'Could not connect via Mobile Wallet Adapter. Try deep link instead.',
+            );
+        }
+    }, [setPublicKey, setAuthToken, setWalletName, setSession, setConnected, refreshBalance]);
+
+    // ------------------------------------------------------------------
+    // Phantom deep-link connect (fallback / iOS)
+    // ------------------------------------------------------------------
+    const handlePhantomConnect = useCallback(async () => {
         try {
             const url = buildConnectUrl();
             await openPhantomLink(url);
@@ -109,16 +166,25 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         }
     }, []);
 
+    // ------------------------------------------------------------------
+    // Disconnect
+    // ------------------------------------------------------------------
     const handleDisconnect = useCallback(async () => {
-        if (session) {
+        if (authToken && session === 'mwa') {
+            try { await mwaDeauthorize(authToken); } catch { }
+        }
+        if (session && session !== 'mwa' && session !== 'demo-session') {
             try {
                 const url = buildDisconnectUrl(session);
                 await openPhantomLink(url);
             } catch { }
         }
         disconnect();
-    }, [session, disconnect]);
+    }, [session, authToken, disconnect]);
 
+    // ------------------------------------------------------------------
+    // Demo mode
+    // ------------------------------------------------------------------
     const handleDemoConnect = useCallback(() => {
         const demoKeypair = Keypair.generate();
         setPublicKey(demoKeypair.publicKey);
@@ -127,6 +193,8 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         setBalance(5.0);
         Alert.alert('Demo Mode', 'Connected with a random demo wallet (5 SOL).\nThis is for testing the game only — no real transactions.');
     }, [setPublicKey, setSession, setConnected, setBalance]);
+
+    const showMWA = isMWAAvailable();
 
     return (
         <View style={[styles.container, { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.lg }]}>
@@ -146,7 +214,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                     {connected && publicKey ? (
                         <>
                             <GlowText color={Colors.success} size="sm" align="center" weight="600" glow={1}>
-                                ● CONNECTED
+                                ● CONNECTED{walletName ? ` via ${walletName}` : ''}
                             </GlowText>
                             <GlowText color={Colors.textPrimary} size="lg" align="center" weight="600" glow={0} style={styles.address}>
                                 {truncateAddress(publicKey.toBase58(), 6)}
@@ -155,10 +223,15 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                                 <GlowText color={Colors.textSecondary} size="body" glow={0}>Balance</GlowText>
                                 <GlowText color={Colors.textPrimary} size="lg" weight="700" glow={0}>{`${balance.toFixed(4)} SOL`}</GlowText>
                             </View>
+                            {session === 'mwa' && (
+                                <GlowText color={Colors.textMuted} size="xs" align="center" glow={0} style={styles.mwaBadge}>
+                                    MWA 2.0 • Solana Mobile Stack
+                                </GlowText>
+                            )}
                         </>
                     ) : (
                         <GlowText color={Colors.textSecondary} size="body" align="center" glow={0}>
-                            Connect your Phantom wallet to play
+                            Connect your Solana wallet to play
                         </GlowText>
                     )}
                 </NeonCard>
@@ -173,15 +246,23 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                     </>
                 ) : (
                     <>
-                        <NeonButton title="Connect Phantom" onPress={handleConnect} variant="secondary" size="lg" />
-                        <NeonButton title="Demo Mode (No Wallet)" onPress={handleDemoConnect} variant="primary" size="md" />
+                        {showMWA && (
+                            <NeonButton title="Connect Wallet (MWA)" onPress={handleMWAConnect} variant="primary" size="lg" />
+                        )}
+                        <NeonButton
+                            title={showMWA ? 'Connect via Deep Link' : 'Connect Phantom'}
+                            onPress={handlePhantomConnect}
+                            variant={showMWA ? 'secondary' : 'primary'}
+                            size={showMWA ? 'md' : 'lg'}
+                        />
+                        <NeonButton title="Demo Mode (No Wallet)" onPress={handleDemoConnect} variant="secondary" size="md" />
                     </>
                 )}
             </Animated.View>
 
             <Animated.View style={footerAnim}>
                 <GlowText color={Colors.textMuted} size="xs" align="center" glow={0} style={styles.footer}>
-                    Skill-based arcade staking • Devnet
+                    Skill-based arcade staking • Devnet • MWA 2.0
                 </GlowText>
             </Animated.View>
         </View>
@@ -198,6 +279,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
         marginTop: Spacing.md, paddingTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.border,
     },
+    mwaBadge: { marginTop: Spacing.sm, letterSpacing: 1 },
     actions: { gap: Spacing.sm + 4 },
     footer: { marginTop: Spacing.xl },
 });

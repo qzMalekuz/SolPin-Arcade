@@ -8,10 +8,16 @@ export interface WalletState {
     balance: number;
     session: string | null;
 
+    // MWA 2.0 fields
+    authToken: string | null;
+    walletName: string | null;
+
     setPublicKey: (key: PublicKey | null) => void;
     setConnected: (value: boolean) => void;
     setBalance: (value: number) => void;
     setSession: (session: string | null) => void;
+    setAuthToken: (token: string | null) => void;
+    setWalletName: (name: string | null) => void;
     disconnect: () => void;
     refreshBalance: () => Promise<void>;
 }
@@ -21,11 +27,15 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     connected: false,
     balance: 0,
     session: null,
+    authToken: null,
+    walletName: null,
 
     setPublicKey: (key) => set({ publicKey: key }),
     setConnected: (value) => set({ connected: value }),
     setBalance: (value) => set({ balance: value }),
     setSession: (session) => set({ session }),
+    setAuthToken: (token) => set({ authToken: token }),
+    setWalletName: (name) => set({ walletName: name }),
 
     disconnect: () =>
         set({
@@ -33,6 +43,8 @@ export const useWalletStore = create<WalletState>((set, get) => ({
             connected: false,
             balance: 0,
             session: null,
+            authToken: null,
+            walletName: null,
         }),
 
     refreshBalance: async () => {

@@ -1,4 +1,4 @@
-# 🎮 SolPin Arcade
+# SolPin Arcade
 
 A minimal, monochrome 2D pinball staking game built with **Expo + TypeScript + Solana**.
 
@@ -108,11 +108,19 @@ Physics are **identical** across all modes. Only geometry/speed differs:
 
 ### Wallet Connection
 
-Uses **Phantom deep linking** (compatible with Expo Go):
+**Mobile Wallet Adapter (MWA) 2.0** is the primary connection method on Android:
 
-```
-phantom://v1/connect?dapp_encryption_public_key=...&cluster=devnet&redirect_link=...
-```
+| MWA Capability | Status |
+|---------------|--------|
+| `authorize` / `reauthorize` | ✅ Auto-reconnect with stored auth token |
+| Sign in with Solana (SIWS) | ✅ `sign_in_payload` in authorize |
+| `signAndSendTransactions` | ✅ Used for staking flow |
+| `signTransactions` | ✅ Supported |
+| `signMessages` | ✅ Supported |
+| `get_capabilities` | ✅ Query wallet features |
+| `solana-wallet://` intent | ✅ Declared in `app.json` |
+
+**Phantom deep linking** is kept as fallback (iOS / non-MWA wallets):
 
 ### Smart Contract (Anchor)
 
@@ -160,7 +168,8 @@ Located in `/anchor/programs/solpin/src/lib.rs`:
 │   │   ├── PinballCanvas.tsx        # WebView wrapper
 │   │   └── FlipperControls.tsx      # Split-screen touch zones
 │   ├── solana/
-│   │   ├── phantom.ts               # Deep-link wallet integration
+│   │   ├── mwa.ts                   # ★ MWA 2.0 wallet adapter
+│   │   ├── phantom.ts               # Deep-link wallet (fallback)
 │   │   ├── connection.ts            # Devnet/Mainnet RPC
 │   │   ├── transactions.ts          # Transaction builders
 │   │   └── anticheat.ts             # Payload hashing & validation
@@ -188,8 +197,10 @@ Located in `/anchor/programs/solpin/src/lib.rs`:
 | Navigation | React Navigation 7 |
 | Animation | React Native Animated API |
 | Blockchain | @solana/web3.js v1 |
-| Wallet | Phantom deep linking |
+| Wallet (Primary) | MWA 2.0 (Solana Mobile Stack) |
+| Wallet (Fallback) | Phantom deep linking |
 | Smart Contract | Anchor (Rust) |
+| Build & CI | EAS Build (Expo Application Services) |
 | Haptics | expo-haptics |
 | Crypto | expo-crypto, tweetnacl |
 
@@ -197,13 +208,46 @@ Located in `/anchor/programs/solpin/src/lib.rs`:
 
 ## Build & Deploy
 
-### Expo Dev Build
+### Prerequisites
+
+- **Node.js** 18+
+- **EAS CLI** — `npm install -g eas-cli`
+- **Expo account** — [expo.dev/signup](https://expo.dev/signup) (free)
+
+### Build Android APK
+
+The project uses **EAS Build** with three profiles defined in `eas.json`:
+
+| Profile | Output | Use Case |
+|---------|--------|----------|
+| `preview` | `.apk` | Sideload on any Android device |
+| `development` | Dev client | Local development with debugging |
+| `production` | `.aab` | Google Play Store upload |
 
 ```bash
-npm install -g eas-cli
-eas build:configure
+# Log in to Expo
+eas login
+
+# Build a standalone APK (sideloadable on any Android device)
 eas build --platform android --profile preview
+
+# Build a production AAB for Play Store
+eas build --platform android --profile production
 ```
+
+After the build completes (~10–15 min), EAS provides a download link for the artifact.
+
+> **Tip:** Enable "Install from Unknown Sources" on your Android device to install the `.apk`.
+
+### Local Build (No Expo Account)
+
+If you have **Android SDK + JDK 17+** set up locally:
+
+```bash
+eas build --platform android --profile preview --local
+```
+
+This produces the `.apk` directly on your machine.
 
 ### Deploy Smart Contract
 
