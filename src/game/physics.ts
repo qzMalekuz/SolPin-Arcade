@@ -230,3 +230,4 @@ export const clampSpeed = (vel: Vec2, maxSpeed: number): Vec2 => {
     }
     return vel;
 };
+
