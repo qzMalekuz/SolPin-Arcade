@@ -1,6 +1,6 @@
 # SolPin Arcade
 
-A minimal, monochrome 2D pinball staking game built with **Expo + TypeScript + Solana**.
+A minimal, monochrome 2D pinball staking game built with **Expo + TypeScript + Solana** made for Monolith Hackathon.
 
 > Skill-based arcade staking on Solana Devnet — keep the ball alive, beat the timer, win rewards.
 
