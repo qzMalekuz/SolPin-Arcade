@@ -2,7 +2,7 @@
 
 A minimal, monochrome 2D pinball staking game built with **Expo + TypeScript + Solana** made for Monolith Hackathon.
 
-> Skill-based arcade staking on Solana Devnet — keep the ball alive, beat the timer, win rewards.
+> Skill-based arcade staking on Solana mainnet — keep the ball alive, beat the timer, win rewards.
 
 ---
 
@@ -12,9 +12,9 @@ A minimal, monochrome 2D pinball staking game built with **Expo + TypeScript + S
 
 - **Node.js** 18+
 - **Android device** (or emulator)
-- An **MWA-compatible wallet** (e.g., Phantom, Solflare, Backpack) installed on the device
+- **Phantom Wallet** installed on the device
 
-> ⚠️ **Note on Expo Go:** Because this project uses the Solana Mobile Wallet Adapter (MWA 2.0) which relies on native Android modules, it is **not compatible with Expo Go**. You must use a custom development build or standalone APK.
+> ⚠️ **Note on Expo Go:** This project connects to Phantom using mobile deep links and returns to the Expo app after wallet approval.
 
 ### Install & Run (Development Build)
 
@@ -29,14 +29,13 @@ npx expo run:android
 npx expo start --dev-client
 ```
 
-### Devnet SOL
+### Mainnet Wallet
 
 ```bash
 # Install Solana CLI
 sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
 
-# Airdrop to your Phantom wallet (switch Phantom to Devnet first)
-solana airdrop 2 <YOUR_PHANTOM_DEVNET_ADDRESS> --url devnet
+# Fund your Phantom wallet on Solana mainnet before staking
 ```
 
 ---
@@ -102,8 +101,8 @@ Physics are **identical** across all modes. Only geometry/speed differs:
 | Duration | Easy | Medium | Hard |
 |----------|------|--------|------|
 | 30s | 1.2x | 1.4x | 1.8x |
+| 45s | 1.35x | 1.6x | 2.0x |
 | 60s | 1.5x | 1.8x | 2.2x |
-| 90s | 1.8x | 2.2x | 2.5x |
 
 ---
 
@@ -111,19 +110,7 @@ Physics are **identical** across all modes. Only geometry/speed differs:
 
 ### Wallet Connection
 
-**Mobile Wallet Adapter (MWA) 2.0** is the primary connection method on Android:
-
-| MWA Capability | Status |
-|---------------|--------|
-| `authorize` / `reauthorize` | ✅ Auto-reconnect with stored auth token |
-| Sign in with Solana (SIWS) | ✅ `sign_in_payload` in authorize |
-| `signAndSendTransactions` | ✅ Used for staking flow |
-| `signTransactions` | ✅ Supported |
-| `signMessages` | ✅ Supported |
-| `get_capabilities` | ✅ Query wallet features |
-| `solana-wallet://` intent | ✅ Declared in `app.json` |
-
-**Phantom deep linking** is kept as fallback (iOS / non-MWA wallets):
+**Phantom mobile deep linking** is the wallet connection method:
 
 ### Smart Contract (Anchor)
 
@@ -171,9 +158,8 @@ Located in `/anchor/programs/solpin/src/lib.rs`:
 │   │   ├── PinballCanvas.tsx        # WebView wrapper
 │   │   └── FlipperControls.tsx      # Split-screen touch zones
 │   ├── solana/
-│   │   ├── mwa.ts                   # ★ MWA 2.0 wallet adapter
-│   │   ├── phantom.ts               # Deep-link wallet (fallback)
-│   │   ├── connection.ts            # Devnet/Mainnet RPC
+│   │   ├── phantom.ts               # Phantom deep-link session manager
+│   │   ├── connection.ts            # Mainnet RPC singleton
 │   │   ├── transactions.ts          # Transaction builders
 │   │   └── anticheat.ts             # Payload hashing & validation
 │   ├── store/
@@ -200,8 +186,7 @@ Located in `/anchor/programs/solpin/src/lib.rs`:
 | Navigation | React Navigation 7 |
 | Animation | React Native Animated API |
 | Blockchain | @solana/web3.js v1 |
-| Wallet (Primary) | MWA 2.0 (Solana Mobile Stack) |
-| Wallet (Fallback) | Phantom deep linking |
+| Wallet | Phantom mobile deep linking |
 | Smart Contract | Anchor (Rust) |
 | Build & CI | EAS Build (Expo Application Services) |
 | Haptics | expo-haptics |
@@ -257,7 +242,7 @@ This produces the `.apk` directly on your machine.
 ```bash
 cd anchor
 anchor build
-anchor deploy --provider.cluster devnet
+anchor deploy --provider.cluster mainnet
 ```
 
 ---

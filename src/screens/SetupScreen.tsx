@@ -19,7 +19,6 @@ import {
     Spacing,
     FontSizes,
     Difficulty,
-    Duration,
     DIFFICULTY_LABELS,
     DURATION_OPTIONS,
     Animations,
@@ -33,43 +32,66 @@ import { buildStakeTransaction } from '../solana/transactions';
 import { generateGameSeed } from '../solana/anticheat';
 import {
     buildSignAndSendUrl,
-    parseSignAndSendResponse,
     getPhantomErrorMessage,
-    hasPhantomEncryptionPubKey,
+    hasPhantomSession,
+    hydratePhantomSession,
     openPhantomLink,
+    parseSignAndSendResponse,
 } from '../solana/phantom';
-import { mwaSignAndSendTransactions } from '../solana/mwa';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Setup'>;
 
-const useFadeInDown = (delay: number = 0) => {
+const useFadeInDown = (delay = 0) => {
     const opacity = useRef(new Animated.Value(0)).current;
     const translateY = useRef(new Animated.Value(16)).current;
+
     useEffect(() => {
-        const t = setTimeout(() => {
+        const timer = setTimeout(() => {
             Animated.parallel([
-                Animated.timing(opacity, { toValue: 1, duration: Animations.smooth, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-                Animated.spring(translateY, { toValue: 0, tension: 200, friction: 18, useNativeDriver: true }),
+                Animated.timing(opacity, {
+                    toValue: 1,
+                    duration: Animations.smooth,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: true,
+                }),
+                Animated.spring(translateY, {
+                    toValue: 0,
+                    tension: 200,
+                    friction: 18,
+                    useNativeDriver: true,
+                }),
             ]).start();
         }, delay);
-        return () => clearTimeout(t);
+
+        return () => clearTimeout(timer);
     }, []);
+
     return { opacity, transform: [{ translateY }] };
 };
 
 export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
     const {
-        stakeAmount, duration, difficulty, multiplier,
-        setStakeAmount, setDuration, setDifficulty, setStatus, setTimeRemaining,
+        stakeAmount,
+        duration,
+        difficulty,
+        multiplier,
+        setStakeAmount,
+        setDuration,
+        setDifficulty,
+        setStatus,
+        setTimeRemaining,
         setTxSignature,
     } = useGameStore();
-    const { publicKey, balance, session, authToken } = useWalletStore();
+    const { publicKey, balance, session } = useWalletStore();
     const [loading, setLoading] = useState(false);
     const phantomSigningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const estimatedPayout = useMemo(() => (stakeAmount * multiplier).toFixed(4), [stakeAmount, multiplier]);
+    const estimatedPayout = useMemo(
+        () => (stakeAmount * multiplier).toFixed(4),
+        [stakeAmount, multiplier],
+    );
     const canStart = stakeAmount > 0 && stakeAmount <= balance && publicKey !== null && !loading;
 
     const anim0 = useFadeInDown(50);
@@ -94,32 +116,35 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
         clearPhantomSigningTimeout();
         const phantomError = getPhantomErrorMessage(
             url,
-            'The wallet could not complete the transaction request.',
+            'Phantom could not complete the transaction request.',
         );
 
         if (phantomError) {
             setLoading(false);
-            Alert.alert('Staking Failed', phantomError);
+            Alert.alert('Transaction Failed', phantomError);
             return;
         }
 
         const result = parseSignAndSendResponse(url);
-        if (result?.signature) {
-            setTxSignature(result.signature);
-            setTimeRemaining(duration);
-            setStatus('playing');
+        if (!result?.signature) {
             setLoading(false);
-            navigation.replace('Game');
+            Alert.alert(
+                'Transaction Failed',
+                'The transaction response from Phantom could not be verified.',
+            );
             return;
         }
 
+        setTxSignature(result.signature);
+        setTimeRemaining(duration);
+        setStatus('playing');
         setLoading(false);
-        Alert.alert('Staking Failed', 'Could not verify the wallet signature. Please reconnect your wallet and try again.');
+        navigation.replace('Game');
     }, [clearPhantomSigningTimeout, duration, navigation, setStatus, setTimeRemaining, setTxSignature]);
 
-    // Listen for Phantom signAndSend callback, including cold start resume
     useEffect(() => {
         const handleInitialUrl = async () => {
+            await hydratePhantomSession();
             const initialUrl = await Linking.getInitialURL();
             if (initialUrl) {
                 handlePhantomSignRedirect(initialUrl);
@@ -139,62 +164,90 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     }, [clearPhantomSigningTimeout, handlePhantomSignRedirect]);
 
     const handleStart = useCallback(async () => {
-        if (!publicKey || !session) { Alert.alert('Error', 'Wallet not connected'); return; }
-        if (stakeAmount > balance) { Alert.alert('Insufficient Balance', 'You do not have enough SOL.'); return; }
+        if (!publicKey || !session) {
+            Alert.alert('Wallet Required', 'Connect Phantom before starting a game.');
+            return;
+        }
+
+        if (stakeAmount > balance) {
+            Alert.alert('Insufficient Balance', 'You do not have enough SOL.');
+            return;
+        }
+
         setLoading(true);
+
         try {
             await generateGameSeed();
-            const tx = await buildStakeTransaction(publicKey, stakeAmount, duration, difficulty);
+            await hydratePhantomSession();
 
-            // MWA mode: use signAndSendTransactions directly
-            if (session === 'mwa' && authToken) {
-                const signatures = await mwaSignAndSendTransactions([tx], authToken);
-                if (signatures.length > 0) {
-                    setTxSignature(signatures[0]);
-                    setTimeRemaining(duration);
-                    setStatus('playing');
-                    navigation.replace('Game');
-                } else {
-                    Alert.alert('Staking Failed', 'No transaction signature returned.');
-                }
+            if (!hasPhantomSession()) {
                 setLoading(false);
-                return;
-            }
-
-            // Phantom deep-link fallback
-            if (!hasPhantomEncryptionPubKey()) {
-                setLoading(false);
-                Alert.alert('Reconnect Required', 'Phantom session details were lost. Please reconnect your wallet and try again.');
+                Alert.alert(
+                    'Reconnect Required',
+                    'Your Phantom session expired. Reconnect your wallet and try again.',
+                );
                 navigation.navigate('Wallet');
                 return;
             }
 
-            const signUrl = buildSignAndSendUrl(tx, session);
+            const transaction = await buildStakeTransaction(
+                publicKey,
+                stakeAmount,
+                duration,
+                difficulty,
+            );
+
+            const signUrl = buildSignAndSendUrl(transaction, session);
             clearPhantomSigningTimeout();
             phantomSigningTimeoutRef.current = setTimeout(() => {
                 setLoading(false);
-                Alert.alert('Wallet Timeout', 'Phantom did not return to the app in time. Please try staking again.');
+                Alert.alert(
+                    'Wallet Timeout',
+                    'Phantom did not return to the app in time. Please try again.',
+                );
             }, 60000);
+
             await openPhantomLink(signUrl);
-            // Navigation happens in the deep-link listener above when Phantom calls back
-        } catch (err: any) {
+        } catch (error: any) {
             clearPhantomSigningTimeout();
-            Alert.alert('Transaction Failed', err.message || 'Something went wrong.');
             setLoading(false);
+            Alert.alert(
+                'Transaction Failed',
+                error?.message || 'Something went wrong while opening Phantom.',
+            );
         }
-    }, [publicKey, session, authToken, stakeAmount, balance, duration, difficulty, navigation, setStatus, setTimeRemaining, setTxSignature, clearPhantomSigningTimeout]);
+    }, [
+        balance,
+        clearPhantomSigningTimeout,
+        difficulty,
+        duration,
+        navigation,
+        publicKey,
+        session,
+        stakeAmount,
+    ]);
 
     return (
-        <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.lg }]}>
+        <ScrollView
+            style={styles.container}
+            contentContainerStyle={[
+                styles.content,
+                { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.lg },
+            ]}
+        >
             <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
 
             <Animated.View style={anim0}>
-                <GlowText color={Colors.textPrimary} size="xl" align="center" weight="700" glow={0}>Game Setup</GlowText>
+                <GlowText color={Colors.textPrimary} size="xl" align="center" weight="700" glow={0}>
+                    Game Setup
+                </GlowText>
             </Animated.View>
 
             <Animated.View style={anim1}>
                 <NeonCard style={styles.section}>
-                    <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>STAKE AMOUNT (SOL)</GlowText>
+                    <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>
+                        STAKE AMOUNT (SOL)
+                    </GlowText>
                     <TextInput
                         style={styles.input}
                         value={stakeAmount.toString()}
@@ -203,18 +256,29 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
                         placeholderTextColor={Colors.textMuted}
                         placeholder="0.1"
                     />
-                    <GlowText color={Colors.textMuted} size="xs" glow={0}>Available: {balance.toFixed(4)} SOL</GlowText>
+                    <GlowText color={Colors.textMuted} size="xs" glow={0}>
+                        Available: {balance.toFixed(4)} SOL
+                    </GlowText>
                 </NeonCard>
             </Animated.View>
 
             <Animated.View style={anim2}>
                 <NeonCard style={styles.section}>
-                    <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>TIME DURATION</GlowText>
+                    <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>
+                        TIME DURATION
+                    </GlowText>
                     <View style={styles.optionRow}>
-                        {DURATION_OPTIONS.map((d) => (
-                            <NeonButton key={d} title={`${d}s`} variant={duration === d ? 'primary' : 'secondary'} size="sm"
-                                onPress={() => setDuration(d)}
-                                style={[styles.optionBtn, duration === d ? styles.optionBtnActive : undefined]}
+                        {DURATION_OPTIONS.map((option) => (
+                            <NeonButton
+                                key={option}
+                                title={`${option}s`}
+                                variant={duration === option ? 'primary' : 'secondary'}
+                                size="sm"
+                                onPress={() => setDuration(option)}
+                                style={[
+                                    styles.optionBtn,
+                                    duration === option ? styles.optionBtnActive : undefined,
+                                ]}
                             />
                         ))}
                     </View>
@@ -223,20 +287,47 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
 
             <Animated.View style={anim3}>
                 <NeonCard style={styles.section}>
-                    <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>DIFFICULTY</GlowText>
+                    <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>
+                        DIFFICULTY
+                    </GlowText>
                     <View style={styles.diffGrid}>
                         {([
                             { key: 'easy' as Difficulty, stars: '★☆☆', desc: 'Relaxed & Forgiving' },
                             { key: 'medium' as Difficulty, stars: '★★☆', desc: 'Balanced Challenge' },
                             { key: 'hard' as Difficulty, stars: '★★★', desc: 'Precision Required' },
-                        ]).map((d) => {
-                            const selected = difficulty === d.key;
+                        ]).map((item) => {
+                            const selected = difficulty === item.key;
                             return (
-                                <Pressable key={d.key} onPress={() => setDifficulty(d.key)}
-                                    style={[styles.diffBtn, selected ? styles.diffBtnActive : undefined]}>
-                                    <GlowText color={selected ? Colors.textPrimary : Colors.textMuted} size="xs" glow={0} align="center">{d.stars}</GlowText>
-                                    <GlowText color={selected ? Colors.textPrimary : Colors.textSecondary} size="body" weight="700" glow={0} align="center">{DIFFICULTY_LABELS[d.key]}</GlowText>
-                                    <GlowText color={selected ? Colors.textSecondary : Colors.textMuted} size="xs" glow={0} align="center">{d.desc}</GlowText>
+                                <Pressable
+                                    key={item.key}
+                                    onPress={() => setDifficulty(item.key)}
+                                    style={[styles.diffBtn, selected ? styles.diffBtnActive : undefined]}
+                                >
+                                    <GlowText
+                                        color={selected ? Colors.textPrimary : Colors.textMuted}
+                                        size="xs"
+                                        glow={0}
+                                        align="center"
+                                    >
+                                        {item.stars}
+                                    </GlowText>
+                                    <GlowText
+                                        color={selected ? Colors.textPrimary : Colors.textSecondary}
+                                        size="body"
+                                        weight="700"
+                                        glow={0}
+                                        align="center"
+                                    >
+                                        {DIFFICULTY_LABELS[item.key]}
+                                    </GlowText>
+                                    <GlowText
+                                        color={selected ? Colors.textSecondary : Colors.textMuted}
+                                        size="xs"
+                                        glow={0}
+                                        align="center"
+                                    >
+                                        {item.desc}
+                                    </GlowText>
                                 </Pressable>
                             );
                         })}
@@ -247,19 +338,41 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
             <Animated.View style={anim4}>
                 <NeonCard style={styles.section}>
                     <View style={styles.previewRow}>
-                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Multiplier</GlowText>
-                        <GlowText color={Colors.textPrimary} size="xl" weight="700" glow={0}>{multiplier.toFixed(1)}x</GlowText>
+                        <GlowText color={Colors.textSecondary} size="body" glow={0}>
+                            Multiplier
+                        </GlowText>
+                        <GlowText color={Colors.textPrimary} size="xl" weight="700" glow={0}>
+                            {multiplier.toFixed(1)}x
+                        </GlowText>
                     </View>
                     <View style={[styles.previewRow, styles.previewRowBorder]}>
-                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Estimated Payout</GlowText>
-                        <GlowText color={Colors.success} size="xl" weight="700" glow={0}>{estimatedPayout} SOL</GlowText>
+                        <GlowText color={Colors.textSecondary} size="body" glow={0}>
+                            Estimated Payout
+                        </GlowText>
+                        <GlowText color={Colors.success} size="xl" weight="700" glow={0}>
+                            {estimatedPayout} SOL
+                        </GlowText>
                     </View>
                 </NeonCard>
             </Animated.View>
 
             <Animated.View style={anim5}>
-                <NeonButton title={loading ? 'Staking...' : 'Start Game'} onPress={handleStart} disabled={!canStart} loading={loading} variant="primary" size="lg" style={styles.startBtn} />
-                <NeonButton title="Back" onPress={() => navigation.goBack()} variant="secondary" size="sm" style={styles.backBtn} />
+                <NeonButton
+                    title={loading ? 'Opening Phantom...' : 'Start Game'}
+                    onPress={handleStart}
+                    disabled={!canStart}
+                    loading={loading}
+                    variant="primary"
+                    size="lg"
+                    style={styles.startBtn}
+                />
+                <NeonButton
+                    title="Back"
+                    onPress={() => navigation.goBack()}
+                    variant="secondary"
+                    size="sm"
+                    style={styles.backBtn}
+                />
             </Animated.View>
         </ScrollView>
     );
@@ -270,7 +383,15 @@ const styles = StyleSheet.create({
     content: { paddingHorizontal: Spacing.lg },
     section: { marginTop: Spacing.md },
     sectionLabel: { letterSpacing: 1.5, marginBottom: Spacing.xs },
-    input: { color: Colors.textPrimary, fontSize: FontSizes.xxl, fontWeight: '700', borderBottomWidth: 1, borderBottomColor: Colors.border, paddingVertical: Spacing.sm, marginVertical: Spacing.sm },
+    input: {
+        color: Colors.textPrimary,
+        fontSize: FontSizes.xxl,
+        fontWeight: '700',
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border,
+        paddingVertical: Spacing.sm,
+        marginVertical: Spacing.sm,
+    },
     optionRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.sm, gap: Spacing.sm },
     optionBtn: { flex: 1 },
     optionBtnActive: { backgroundColor: Colors.bgSelected },
@@ -278,7 +399,16 @@ const styles = StyleSheet.create({
     previewRowBorder: { marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.border },
     startBtn: { marginTop: Spacing.lg },
     backBtn: { marginTop: Spacing.sm + 4 },
-    diffGrid: { flexDirection: 'row' as const, justifyContent: 'space-between' as const, marginTop: Spacing.sm, gap: Spacing.sm },
-    diffBtn: { flex: 1, borderWidth: 1, borderColor: Colors.borderLight, borderRadius: 14, paddingVertical: Spacing.sm + 2, paddingHorizontal: Spacing.xs, alignItems: 'center' as const, backgroundColor: 'rgba(255,255,255,0.02)' },
+    diffGrid: { flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.sm, gap: Spacing.sm },
+    diffBtn: {
+        flex: 1,
+        borderWidth: 1,
+        borderColor: Colors.borderLight,
+        borderRadius: 14,
+        paddingVertical: Spacing.sm + 2,
+        paddingHorizontal: Spacing.xs,
+        alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.02)',
+    },
     diffBtnActive: { backgroundColor: Colors.bgSelected, borderColor: 'rgba(255,255,255,0.15)' },
 });

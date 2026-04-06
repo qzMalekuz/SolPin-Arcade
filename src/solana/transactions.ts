@@ -10,7 +10,7 @@ import { Difficulty, Duration } from '../theme';
 
 // -----------------------------------------------------------------
 // In production these would reference real Anchor program PDAs.
-// For devnet demo we use simple SOL transfers as a placeholder.
+// This temporary implementation uses simple SOL transfers as a placeholder.
 // -----------------------------------------------------------------
 
 /** Placeholder program ID - replace with your deployed Anchor program */
@@ -20,7 +20,7 @@ export const PROGRAM_ID = new PublicKey(
 
 /** Placeholder reward pool wallet (would be a PDA in production) */
 export const REWARD_POOL_PUBKEY = new PublicKey(
-    'GwL1S3yVCf1T6iNxjReqTfPLzYfG2unXxPZdp5bDjwkP' // example devnet pubkey
+    'GwL1S3yVCf1T6iNxjReqTfPLzYfG2unXxPZdp5bDjwkP'
 );
 
 /**
