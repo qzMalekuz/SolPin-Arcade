@@ -17,6 +17,7 @@ import {
     PublicKey,
     Transaction,
 } from '@solana/web3.js';
+import { getMwaCluster, getSolanaNetworkLabel } from './connection';
 
 
 // ------------------------------------------------------------------
@@ -29,9 +30,8 @@ const APP_IDENTITY = {
     icon: 'favicon.png',
 };
 
-const CLUSTER = 'devnet' as const;
-
-const AUTH_TOKEN_KEY = 'mwa_auth_token';
+const CLUSTER = getMwaCluster();
+const REQUEST_TIMEOUT_MS = 45000;
 
 // ------------------------------------------------------------------
 // Platform check
@@ -56,30 +56,132 @@ export interface MWAAuthResult {
     walletName: string;
 }
 
+const withTimeout = async <T>(
+    promise: Promise<T>,
+    timeoutMessage: string,
+): Promise<T> => {
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<T>((_, reject) => {
+                timeoutHandle = setTimeout(() => {
+                    reject(new Error(timeoutMessage));
+                }, REQUEST_TIMEOUT_MS);
+            }),
+        ]);
+    } finally {
+        if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+        }
+    }
+};
+
+const getWalletName = (walletUriBase?: string): string => {
+    if (!walletUriBase) {
+        return 'Mobile Wallet';
+    }
+
+    try {
+        return new URL(walletUriBase).hostname.replace(/^www\./, '');
+    } catch {
+        return walletUriBase;
+    }
+};
+
+const normalizeMWAError = (
+    error: unknown,
+    action: 'connect' | 'reconnect' | 'disconnect' | 'sign',
+): Error => {
+    const rawMessage =
+        error instanceof Error ? error.message.trim() : 'Unknown wallet error.';
+    const normalizedMessage = rawMessage.toLowerCase();
+
+    if (!isMWAAvailable()) {
+        return new Error('Mobile Wallet Adapter is only available on supported Android devices.');
+    }
+
+    if (normalizedMessage.includes('declin') || normalizedMessage.includes('reject')) {
+        return new Error(
+            action === 'connect'
+                ? 'Connection request was cancelled in your wallet.'
+                : 'The wallet request was cancelled before it completed.',
+        );
+    }
+
+    if (normalizedMessage.includes('timeout')) {
+        return new Error('Wallet request timed out. Please reopen your wallet and try again.');
+    }
+
+    if (normalizedMessage.includes('not found') || normalizedMessage.includes('no wallet')) {
+        return new Error('No compatible mobile wallet was found on this device.');
+    }
+
+    if (normalizedMessage.includes('cluster') || normalizedMessage.includes('chain')) {
+        return new Error(
+            `The wallet could not authorize on ${getSolanaNetworkLabel()}. Confirm the selected network matches your wallet.`,
+        );
+    }
+
+    if (action === 'disconnect') {
+        return new Error('Wallet disconnection could not be completed.');
+    }
+
+    if (action === 'reconnect') {
+        return new Error('Wallet session expired. Please reconnect your wallet.');
+    }
+
+    if (action === 'sign') {
+        return new Error('The wallet could not approve this request.');
+    }
+
+    return new Error('The wallet connection could not be completed.');
+};
+
+const authorizeWithWallet = async (
+    wallet: Web3MobileWallet,
+    authToken?: string,
+) => {
+    const authResult = await wallet.authorize({
+        chain: `solana:${CLUSTER}`,
+        identity: APP_IDENTITY,
+        ...(authToken
+            ? { auth_token: authToken }
+            : {
+                sign_in_payload: {
+                    domain: 'solpin.arcade',
+                    statement: 'Sign in to SolPin-Arcade',
+                    uri: 'https://solpin.arcade',
+                },
+            }),
+    });
+
+    const account = authResult.accounts?.[0];
+    if (!account?.address) {
+        throw new Error('No wallet account was returned.');
+    }
+
+    return {
+        publicKey: new PublicKey(account.address),
+        authToken: authResult.auth_token,
+        walletName: getWalletName(authResult.wallet_uri_base),
+    };
+};
+
 /**
  * Open any MWA-compliant wallet (Phantom, Solflare, Backpack, etc.)
  * and request authorization with Sign in with Solana (SIWS).
  */
 export const mwaAuthorize = async (): Promise<MWAAuthResult> => {
-    const result = await transact(async (wallet: Web3MobileWallet) => {
-        const authResult = await wallet.authorize({
-            chain: `solana:${CLUSTER}`,
-            identity: APP_IDENTITY,
-            sign_in_payload: {
-                domain: 'solpin.arcade',
-                statement: 'Sign in to SolPin-Arcade',
-                uri: 'https://solpin.arcade',
-            },
-        });
-
-        return {
-            publicKey: new PublicKey(authResult.accounts[0].address),
-            authToken: authResult.auth_token,
-            walletName: authResult.wallet_uri_base ?? 'Unknown Wallet',
-        };
-    });
-
-    return result;
+    try {
+        return await withTimeout(
+            transact(async (wallet: Web3MobileWallet) => authorizeWithWallet(wallet)),
+            'Wallet request timed out. Please try again.',
+        );
+    } catch (error) {
+        throw normalizeMWAError(error, 'connect');
+    }
 };
 
 // ------------------------------------------------------------------
@@ -93,21 +195,14 @@ export const mwaAuthorize = async (): Promise<MWAAuthResult> => {
 export const mwaReauthorize = async (
     authToken: string,
 ): Promise<MWAAuthResult> => {
-    const result = await transact(async (wallet: Web3MobileWallet) => {
-        const authResult = await wallet.authorize({
-            chain: `solana:${CLUSTER}`,
-            identity: APP_IDENTITY,
-            auth_token: authToken,
-        });
-
-        return {
-            publicKey: new PublicKey(authResult.accounts[0].address),
-            authToken: authResult.auth_token,
-            walletName: authResult.wallet_uri_base ?? 'Unknown Wallet',
-        };
-    });
-
-    return result;
+    try {
+        return await withTimeout(
+            transact(async (wallet: Web3MobileWallet) => authorizeWithWallet(wallet, authToken)),
+            'Wallet session timed out. Please reconnect.',
+        );
+    } catch (error) {
+        throw normalizeMWAError(error, 'reconnect');
+    }
 };
 
 // ------------------------------------------------------------------
@@ -122,45 +217,45 @@ export const mwaSignAndSendTransactions = async (
     transactions: Transaction[],
     authToken: string,
 ): Promise<string[]> => {
+    try {
+        const signatures = await withTimeout(
+            transact(async (wallet: Web3MobileWallet) => {
+                await authorizeWithWallet(wallet, authToken);
 
-    const signatures = await transact(async (wallet: Web3MobileWallet) => {
-        // Reauthorize within the same session
-        await wallet.authorize({
-            chain: `solana:${CLUSTER}`,
-            identity: APP_IDENTITY,
-            auth_token: authToken,
+                return wallet.signAndSendTransactions({
+                    transactions,
+                });
+            }),
+            'Wallet request timed out. Please try again.',
+        );
+
+        return signatures.map((sig) => {
+            if (typeof sig === 'string') return sig;
+            const bs58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+            let result = '';
+            const bytes = new Uint8Array(sig);
+            let num = BigInt(0);
+
+            for (const byte of bytes) {
+                num = num * BigInt(256) + BigInt(byte);
+            }
+
+            while (num > BigInt(0)) {
+                const remainder = Number(num % BigInt(58));
+                num = num / BigInt(58);
+                result = bs58Chars[remainder] + result;
+            }
+
+            for (const byte of bytes) {
+                if (byte === 0) result = '1' + result;
+                else break;
+            }
+
+            return result || '1';
         });
-
-        const sigs = await wallet.signAndSendTransactions({
-            transactions,
-        });
-
-        return sigs;
-    });
-
-    // Convert Uint8Array signatures to base58 strings
-    return signatures.map((sig) => {
-        if (typeof sig === 'string') return sig;
-        // Convert byte array to base58
-        const bs58Chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-        let result = '';
-        const bytes = new Uint8Array(sig);
-        let num = BigInt(0);
-        for (const byte of bytes) {
-            num = num * BigInt(256) + BigInt(byte);
-        }
-        while (num > BigInt(0)) {
-            const remainder = Number(num % BigInt(58));
-            num = num / BigInt(58);
-            result = bs58Chars[remainder] + result;
-        }
-        // Handle leading zeros
-        for (const byte of bytes) {
-            if (byte === 0) result = '1' + result;
-            else break;
-        }
-        return result || '1';
-    });
+    } catch (error) {
+        throw normalizeMWAError(error, 'sign');
+    }
 };
 
 // ------------------------------------------------------------------
@@ -175,21 +270,20 @@ export const mwaSignTransactions = async (
     transactions: Transaction[],
     authToken: string,
 ): Promise<Transaction[]> => {
-    const signed = await transact(async (wallet: Web3MobileWallet) => {
-        await wallet.authorize({
-            chain: `solana:${CLUSTER}`,
-            identity: APP_IDENTITY,
-            auth_token: authToken,
-        });
+    try {
+        return await withTimeout(
+            transact(async (wallet: Web3MobileWallet) => {
+                await authorizeWithWallet(wallet, authToken);
 
-        const result = await wallet.signTransactions({
-            transactions,
-        });
-
-        return result;
-    });
-
-    return signed;
+                return wallet.signTransactions({
+                    transactions,
+                });
+            }),
+            'Wallet request timed out. Please try again.',
+        );
+    } catch (error) {
+        throw normalizeMWAError(error, 'sign');
+    }
 };
 
 // ------------------------------------------------------------------
@@ -205,22 +299,21 @@ export const mwaSignMessages = async (
     addresses: string[],
     authToken: string,
 ): Promise<Uint8Array[]> => {
-    const signatures = await transact(async (wallet: Web3MobileWallet) => {
-        await wallet.authorize({
-            chain: `solana:${CLUSTER}`,
-            identity: APP_IDENTITY,
-            auth_token: authToken,
-        });
+    try {
+        return await withTimeout(
+            transact(async (wallet: Web3MobileWallet) => {
+                await authorizeWithWallet(wallet, authToken);
 
-        const result = await wallet.signMessages({
-            addresses,
-            payloads: messages,
-        });
-
-        return result;
-    });
-
-    return signatures;
+                return wallet.signMessages({
+                    addresses,
+                    payloads: messages,
+                });
+            }),
+            'Wallet request timed out. Please try again.',
+        );
+    } catch (error) {
+        throw normalizeMWAError(error, 'sign');
+    }
 };
 
 // ------------------------------------------------------------------
@@ -243,22 +336,24 @@ export interface WalletCapabilities {
 export const mwaGetCapabilities = async (
     authToken: string,
 ): Promise<WalletCapabilities> => {
-    const caps = await transact(async (wallet: Web3MobileWallet) => {
-        await wallet.authorize({
-            chain: `solana:${CLUSTER}`,
-            identity: APP_IDENTITY,
-            auth_token: authToken,
-        });
+    let caps: any = null;
 
-        // get_capabilities may not be supported by all wallets
-        try {
-            const result = await (wallet as any).getCapabilities();
-            return result;
-        } catch {
-            // Return defaults if not supported
-            return null;
-        }
-    });
+    try {
+        caps = await withTimeout(
+            transact(async (wallet: Web3MobileWallet) => {
+                await authorizeWithWallet(wallet, authToken);
+
+                try {
+                    return await (wallet as any).getCapabilities();
+                } catch {
+                    return null;
+                }
+            }),
+            'Wallet request timed out. Please try again.',
+        );
+    } catch {
+        caps = null;
+    }
 
     return {
         supportsSignAndSendTransactions: caps?.supports_sign_and_send_transactions ?? true,
@@ -278,13 +373,15 @@ export const mwaGetCapabilities = async (
  * Deauthorize the current session with the wallet.
  */
 export const mwaDeauthorize = async (authToken: string): Promise<void> => {
-    await transact(async (wallet: Web3MobileWallet) => {
-        await wallet.authorize({
-            chain: `solana:${CLUSTER}`,
-            identity: APP_IDENTITY,
-            auth_token: authToken,
-        });
-
-        await (wallet as any).deauthorize({ auth_token: authToken });
-    });
+    try {
+        await withTimeout(
+            transact(async (wallet: Web3MobileWallet) => {
+                await authorizeWithWallet(wallet, authToken);
+                await (wallet as any).deauthorize({ auth_token: authToken });
+            }),
+            'Wallet request timed out. Please try again.',
+        );
+    } catch (error) {
+        throw normalizeMWAError(error, 'disconnect');
+    }
 };

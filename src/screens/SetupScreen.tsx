@@ -103,16 +103,6 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
             await generateGameSeed();
             const tx = await buildStakeTransaction(publicKey, stakeAmount, duration, difficulty);
 
-            // Demo mode: skip wallet, go straight to game
-            if (session === 'demo-session') {
-                setTxSignature('demo-tx');
-                setTimeRemaining(duration);
-                setStatus('playing');
-                setLoading(false);
-                navigation.replace('Game');
-                return;
-            }
-
             // MWA mode: use signAndSendTransactions directly
             if (session === 'mwa' && authToken) {
                 const signatures = await mwaSignAndSendTransactions([tx], authToken);

@@ -4,10 +4,12 @@ import { Buffer } from 'buffer';
 import {
     PublicKey,
     Transaction,
-    Connection,
 } from '@solana/web3.js';
 import nacl from 'tweetnacl';
-import { DEVNET_RPC } from './connection';
+import {
+    getPhantomCluster,
+    getSolanaNetworkLabel,
+} from './connection';
 
 // ------------------------------------------------------------------
 // Phantom deep-link integration for Expo Go
@@ -62,6 +64,27 @@ export interface PhantomConnectResult {
     session: string;
 }
 
+const normalizePhantomError = (
+    errorMessage?: string,
+    fallback?: string,
+): string => {
+    const normalizedMessage = errorMessage?.trim().toLowerCase() ?? '';
+
+    if (normalizedMessage.includes('reject') || normalizedMessage.includes('declin')) {
+        return 'Connection request was cancelled in Phantom.';
+    }
+
+    if (normalizedMessage.includes('timeout')) {
+        return 'Phantom did not respond in time. Please try again.';
+    }
+
+    if (normalizedMessage.includes('cluster')) {
+        return `Phantom could not connect on ${getSolanaNetworkLabel()}. Confirm your wallet is using the same network.`;
+    }
+
+    return fallback ?? 'Phantom could not complete the request.';
+};
+
 /**
  * Opens Phantom to request wallet connection.
  * Uses universal link (https://phantom.app/ul/v1/connect).
@@ -70,11 +93,29 @@ export const buildConnectUrl = (): string => {
     const kp = getDappKeyPair();
     const params = new URLSearchParams({
         dapp_encryption_public_key: bs58.encode(kp.publicKey),
-        cluster: 'devnet',
+        cluster: getPhantomCluster(),
         app_url: 'https://solpin.arcade',
         redirect_link: getRedirectUri('onConnect'),
     });
     return `${PHANTOM_BASE}${PHANTOM_CONNECT}?${params.toString()}`;
+};
+
+export const getPhantomErrorMessage = (
+    url: string,
+    fallback?: string,
+): string | null => {
+    try {
+        const parsed = Linking.parse(url);
+        const params = parsed.queryParams as Record<string, string>;
+
+        if (!params.errorCode && !params.errorMessage) {
+            return null;
+        }
+
+        return normalizePhantomError(params.errorMessage, fallback);
+    } catch {
+        return fallback ?? 'Phantom could not complete the request.';
+    }
 };
 
 /**
@@ -88,7 +129,6 @@ export const parseConnectResponse = (
         const params = parsed.queryParams as Record<string, string>;
 
         if (params.errorCode) {
-            console.warn('Phantom connect error:', params.errorMessage);
             return null;
         }
 
@@ -102,18 +142,17 @@ export const parseConnectResponse = (
         const kp = getDappKeyPair();
         const decrypted = nacl.box.open(encryptedData, nonce, phantomPubKey, kp.secretKey);
         if (!decrypted) {
-            console.warn('Failed to decrypt Phantom connect payload');
             return null;
         }
 
         const payload = JSON.parse(Buffer.from(decrypted).toString('utf-8'));
+        const publicKey = new PublicKey(payload.public_key);
 
         return {
-            publicKey: new PublicKey(payload.public_key),
+            publicKey,
             session: payload.session,
         };
-    } catch (err) {
-        console.warn('parseConnectResponse error:', err);
+    } catch {
         return null;
     }
 };
@@ -214,13 +253,11 @@ export const parseSignAndSendResponse = (
         const params = parsed.queryParams as Record<string, string>;
 
         if (params.errorCode) {
-            console.warn('Phantom sign error:', params.errorMessage);
             return null;
         }
 
         const phantomPubKey = getPhantomEncryptionPubKey();
         if (!phantomPubKey) {
-            console.warn('Phantom encryption key not available for decryption');
             return null;
         }
 
@@ -236,14 +273,12 @@ export const parseSignAndSendResponse = (
         );
 
         if (!decrypted) {
-            console.warn('Failed to decrypt Phantom signAndSend response');
             return null;
         }
 
         const payload = JSON.parse(Buffer.from(decrypted).toString('utf-8'));
         return { signature: payload.signature ?? '' };
-    } catch (err) {
-        console.warn('parseSignAndSendResponse error:', err);
+    } catch {
         return null;
     }
 };
@@ -260,13 +295,11 @@ export const parseSignTransactionResponse = (
         const params = parsed.queryParams as Record<string, string>;
 
         if (params.errorCode) {
-            console.warn('Phantom signTransaction error:', params.errorMessage);
             return null;
         }
 
         const phantomPubKey = getPhantomEncryptionPubKey();
         if (!phantomPubKey) {
-            console.warn('Phantom encryption key not available for decryption');
             return null;
         }
 
@@ -282,14 +315,12 @@ export const parseSignTransactionResponse = (
         );
 
         if (!decrypted) {
-            console.warn('Failed to decrypt Phantom signTransaction response');
             return null;
         }
 
         const payload = JSON.parse(Buffer.from(decrypted).toString('utf-8'));
         return { transaction: payload.transaction ?? '' };
-    } catch (err) {
-        console.warn('parseSignTransactionResponse error:', err);
+    } catch {
         return null;
     }
 };
