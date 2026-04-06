@@ -28,6 +28,20 @@ export interface PhantomSessionState {
 
 const getRedirectUri = (path: string): string => Linking.createURL(path);
 
+const getQueryParams = (url: string): Record<string, string> => {
+    try {
+        const parsed = new URL(url.replace('solpin://', 'https://solpin/'));
+        const params: Record<string, string> = {};
+        parsed.searchParams.forEach((value, key) => {
+            params[key] = value;
+        });
+        return params;
+    } catch {
+        const parsed = Linking.parse(url);
+        return (parsed.queryParams ?? {}) as Record<string, string>;
+    }
+};
+
 let dappKeyPair: nacl.BoxKeyPair | null = null;
 let phantomEncryptionPublicKey: Uint8Array | null = null;
 
@@ -116,8 +130,7 @@ export const getPhantomErrorMessage = (
     fallback?: string,
 ): string | null => {
     try {
-        const parsed = Linking.parse(url);
-        const params = parsed.queryParams as Record<string, string>;
+        const params = getQueryParams(url);
         if (!params.errorCode && !params.errorMessage) {
             return null;
         }
@@ -128,9 +141,9 @@ export const getPhantomErrorMessage = (
     }
 };
 
-export const buildConnectUrl = (): string => {
+export const buildConnectUrl = async (): Promise<string> => {
     const keyPair = getDappKeyPair();
-    void saveSession({
+    await saveSession({
         dappPublicKey: bs58.encode(keyPair.publicKey),
         dappSecretKey: bs58.encode(keyPair.secretKey),
         phantomEncryptionPublicKey: '',
@@ -152,9 +165,12 @@ export const parseConnectResponse = async (
     url: string,
 ): Promise<PhantomSessionState | null> => {
     try {
-        const parsed = Linking.parse(url);
-        const params = parsed.queryParams as Record<string, string>;
+        const params = getQueryParams(url);
         if (params.errorCode) {
+            return null;
+        }
+
+        if (!params.phantom_encryption_public_key || !params.nonce || !params.data) {
             return null;
         }
 
@@ -247,9 +263,12 @@ export const parseSignAndSendResponse = (
             return null;
         }
 
-        const parsed = Linking.parse(url);
-        const params = parsed.queryParams as Record<string, string>;
+        const params = getQueryParams(url);
         if (params.errorCode) {
+            return null;
+        }
+
+        if (!params.nonce || !params.data) {
             return null;
         }
 

@@ -22,6 +22,9 @@ export interface GameState {
     txSignature: string | null;
     stakeAccountPda: string | null;
 
+    // Tutorial
+    tutorialMode: boolean;
+
     // Sound
     soundEnabled: boolean;
 
@@ -39,6 +42,7 @@ export interface GameState {
     setRewardAmount: (amount: number) => void;
     setTxSignature: (sig: string | null) => void;
     setStakeAccountPda: (pda: string | null) => void;
+    setTutorialMode: (enabled: boolean) => void;
     toggleSound: () => void;
     resetGame: () => void;
 }
@@ -62,6 +66,8 @@ export const useGameStore = create<GameState>((set, get) => ({
     rewardAmount: 0,
     txSignature: null,
     stakeAccountPda: null,
+
+    tutorialMode: false,
 
     soundEnabled: true,
 
@@ -94,6 +100,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     setRewardAmount: (amount) => set({ rewardAmount: amount }),
     setTxSignature: (sig) => set({ txSignature: sig }),
     setStakeAccountPda: (pda) => set({ stakeAccountPda: pda }),
+    setTutorialMode: (enabled) => set({ tutorialMode: enabled }),
     toggleSound: () => set((s) => ({ soundEnabled: !s.soundEnabled })),
     resetGame: () =>
         set((s) => ({
@@ -105,5 +112,6 @@ export const useGameStore = create<GameState>((set, get) => ({
             rewardAmount: 0,
             txSignature: null,
             stakeAccountPda: null,
+            tutorialMode: false,
         })),
 }));

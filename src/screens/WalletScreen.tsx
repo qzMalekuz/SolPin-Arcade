@@ -28,7 +28,7 @@ import {
     truncateAddress,
 } from '../solana/phantom';
 import { getSolanaNetworkLabel } from '../solana/connection';
-import { useGameStore } from '../store/gameStore';
+import { useGameStore, type GameStatus } from '../store/gameStore';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Wallet'>;
@@ -63,7 +63,7 @@ const useFadeInDown = (delay = 0) => {
 
 export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
-    const { duration, setStatus, setTimeRemaining, setTxSignature } = useGameStore();
+    const { duration, setStatus, setTimeRemaining, setTxSignature, setTutorialMode } = useGameStore();
     const {
         publicKey,
         connected,
@@ -244,7 +244,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         setPendingAction('connect');
 
         try {
-            const url = buildConnectUrl();
+            const url = await buildConnectUrl();
             clearConnectTimeout();
             connectTimeoutRef.current = setTimeout(() => {
                 setPendingAction(null);
@@ -280,6 +280,13 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
             disconnect();
         }
     }, [beginDisconnect, disconnect, isBusy, session]);
+
+    const handleTutorial = useCallback(() => {
+        setTutorialMode(true);
+        setTimeRemaining(60);
+        setStatus('playing');
+        navigation.navigate('Game');
+    }, [navigation, setStatus, setTimeRemaining, setTutorialMode]);
 
     return (
         <View
@@ -375,6 +382,15 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                         disabled={isBusy}
                     />
                 )}
+                {!connected && (
+                    <NeonButton
+                        title="Tutorial Mode"
+                        onPress={handleTutorial}
+                        variant="secondary"
+                        size="sm"
+                        style={styles.tutorialBtn}
+                    />
+                )}
             </Animated.View>
 
             <Animated.View style={footerAnim}>
@@ -409,5 +425,6 @@ const styles = StyleSheet.create({
     networkBadge: { marginTop: Spacing.sm, letterSpacing: 1 },
     errorText: { marginTop: Spacing.md, lineHeight: 18 },
     actions: { gap: Spacing.sm + 4 },
+    tutorialBtn: { marginTop: Spacing.xs },
     footer: { marginTop: Spacing.xl },
 });

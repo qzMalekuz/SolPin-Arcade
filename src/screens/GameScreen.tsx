@@ -24,7 +24,7 @@ import type { RootStackParamList } from '../../App';
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
 export const GameScreen: React.FC<Props> = ({ navigation }) => {
-    const { duration, difficulty, stakeAmount, multiplier, setScore, setStatus } = useGameStore();
+    const { duration, difficulty, stakeAmount, multiplier, tutorialMode, setScore, setStatus } = useGameStore();
 
     const webviewRef = useRef<WebView>(null);
     const [score, setLocalScore] = useState(0);
@@ -103,11 +103,17 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
     const handleResume = useCallback(() => { setPaused(false); sendToGame({ type: 'resume' }); }, [sendToGame]);
 
     const handleQuit = useCallback(() => {
+        if (tutorialMode) {
+            setStatus('lost');
+            setScore(score);
+            navigation.replace('Result');
+            return;
+        }
         Alert.alert('Quit Game', 'You will lose your stake.', [
             { text: 'Continue', style: 'cancel', onPress: handleResume },
             { text: 'Quit', style: 'destructive', onPress: () => { setStatus('lost'); setScore(score); navigation.replace('Result'); } },
         ]);
-    }, [handleResume, setStatus, setScore, score, navigation]);
+    }, [handleResume, setStatus, setScore, score, navigation, tutorialMode]);
 
     const formatTime = useCallback((s: number) => {
         const m = Math.floor(s / 60);
@@ -160,14 +166,14 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
                     <Animated.View style={{ transform: [{ translateY: pauseSlide }] }}>
                         <GlowText color="#f2f2f2" size="hero" align="center" weight="700" glow={1}>PAUSED</GlowText>
                         <GlowText color="#666" size="body" align="center" glow={0} style={styles.pauseSub}>
-                            {`${stakeAmount} SOL staked • ${(stakeAmount * multiplier).toFixed(3)} SOL to win`}
+                            {tutorialMode ? 'Tutorial Mode • No stake' : `${stakeAmount} SOL staked • ${(stakeAmount * multiplier).toFixed(3)} SOL to win`}
                         </GlowText>
                         <View style={styles.pauseScoreBox}>
                             <GlowText color="#f2f2f2" size="xl" weight="700" align="center" glow={0}>{score.toLocaleString()}</GlowText>
                             <GlowText color="#555" size="xs" align="center" glow={0}>POINTS</GlowText>
                         </View>
                         <NeonButton title="Resume" onPress={handleResume} variant="primary" size="lg" style={styles.pauseAction} />
-                        <NeonButton title="Quit (Lose Stake)" onPress={handleQuit} variant="danger" size="md" style={styles.pauseAction} />
+                        <NeonButton title={tutorialMode ? 'Quit' : 'Quit (Lose Stake)'} onPress={handleQuit} variant="danger" size="md" style={styles.pauseAction} />
                     </Animated.View>
                 </Animated.View>
             )}

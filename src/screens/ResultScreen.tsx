@@ -31,7 +31,7 @@ const useFadeInDown = (delay: number = 0) => {
 
 export const ResultScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
-    const { status, score, stakeAmount, multiplier, txSignature, duration, difficulty, resetGame } = useGameStore();
+    const { status, score, stakeAmount, multiplier, txSignature, duration, difficulty, tutorialMode, resetGame } = useGameStore();
     const isWin = status === 'won';
 
     const headerAnim = useFadeInDown(100);
@@ -46,7 +46,7 @@ export const ResultScreen: React.FC<Props> = ({ navigation }) => {
         }
     }, [isWin]);
 
-    const handlePlayAgain = () => { resetGame(); navigation.replace('Setup'); };
+    const handlePlayAgain = () => { resetGame(); navigation.replace(tutorialMode ? 'Wallet' : 'Setup'); };
     const handleHome = () => { resetGame(); navigation.popToTop(); };
 
     return (
@@ -58,7 +58,9 @@ export const ResultScreen: React.FC<Props> = ({ navigation }) => {
                     {isWin ? 'YOU WIN!' : 'GAME OVER'}
                 </GlowText>
                 <GlowText color={Colors.textSecondary} size="body" align="center" glow={0} style={styles.subtext}>
-                    {isWin ? 'You survived the timer! Rewards are yours.' : 'Ball drained before the timer ended.'}
+                    {tutorialMode
+                        ? (isWin ? 'Great job! Connect a wallet to play for real.' : 'Keep practicing! Connect a wallet to play for real.')
+                        : (isWin ? 'You survived the timer! Rewards are yours.' : 'Ball drained before the timer ended.')}
                 </GlowText>
             </Animated.View>
 
@@ -68,38 +70,47 @@ export const ResultScreen: React.FC<Props> = ({ navigation }) => {
                         <GlowText color={Colors.textSecondary} size="body" glow={0}>Score</GlowText>
                         <AnimatedNumber value={score} duration={1000} color={Colors.textPrimary} size="lg" weight="700" />
                     </View>
-                    <View style={styles.statRow}>
-                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Stake</GlowText>
-                        <GlowText color={Colors.textPrimary} size="lg" weight="600" glow={0}>{stakeAmount.toFixed(4)} SOL</GlowText>
-                    </View>
-                    <View style={styles.statRow}>
-                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Difficulty</GlowText>
-                        <GlowText color={Colors.textSecondary} size="lg" weight="600" glow={0}>{difficulty.toUpperCase()} / {duration}s</GlowText>
-                    </View>
-
-                    {isWin && (
+                    {tutorialMode ? (
+                        <View style={[styles.statRow, styles.rewardRow]}>
+                            <GlowText color={Colors.textMuted} size="body" glow={0}>MODE</GlowText>
+                            <GlowText color={Colors.textSecondary} size="lg" weight="600" glow={0}>Tutorial</GlowText>
+                        </View>
+                    ) : (
                         <>
-                            <View style={[styles.statRow, styles.rewardRow]}>
-                                <GlowText color={Colors.textSecondary} size="body" glow={0}>Multiplier</GlowText>
-                                <GlowText color={Colors.textPrimary} size="lg" weight="700" glow={0}>{multiplier.toFixed(1)}x</GlowText>
+                            <View style={styles.statRow}>
+                                <GlowText color={Colors.textSecondary} size="body" glow={0}>Stake</GlowText>
+                                <GlowText color={Colors.textPrimary} size="lg" weight="600" glow={0}>{stakeAmount.toFixed(4)} SOL</GlowText>
                             </View>
-                            <View style={[styles.statRow, styles.rewardRow]}>
-                                <GlowText color={Colors.success} size="md" weight="700" glow={0}>REWARD</GlowText>
-                                <AnimatedNumber value={stakeAmount * multiplier} duration={1400} decimals={4} suffix=" SOL" color={Colors.success} size="xl" weight="700" />
+                            <View style={styles.statRow}>
+                                <GlowText color={Colors.textSecondary} size="body" glow={0}>Difficulty</GlowText>
+                                <GlowText color={Colors.textSecondary} size="lg" weight="600" glow={0}>{difficulty.toUpperCase()} / {duration}s</GlowText>
                             </View>
-                            {txSignature && (
-                                <View style={styles.sigContainer}>
-                                    <GlowText color={Colors.textMuted} size="xs" align="center" glow={0}>TX: {txSignature.slice(0, 20)}...</GlowText>
+
+                            {isWin && (
+                                <>
+                                    <View style={[styles.statRow, styles.rewardRow]}>
+                                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Multiplier</GlowText>
+                                        <GlowText color={Colors.textPrimary} size="lg" weight="700" glow={0}>{multiplier.toFixed(1)}x</GlowText>
+                                    </View>
+                                    <View style={[styles.statRow, styles.rewardRow]}>
+                                        <GlowText color={Colors.success} size="md" weight="700" glow={0}>REWARD</GlowText>
+                                        <AnimatedNumber value={stakeAmount * multiplier} duration={1400} decimals={4} suffix=" SOL" color={Colors.success} size="xl" weight="700" />
+                                    </View>
+                                    {txSignature && (
+                                        <View style={styles.sigContainer}>
+                                            <GlowText color={Colors.textMuted} size="xs" align="center" glow={0}>TX: {txSignature.slice(0, 20)}...</GlowText>
+                                        </View>
+                                    )}
+                                </>
+                            )}
+
+                            {!isWin && (
+                                <View style={[styles.statRow, styles.rewardRow]}>
+                                    <GlowText color={Colors.danger} size="md" weight="700" glow={0}>LOST STAKE</GlowText>
+                                    <GlowText color={Colors.danger} size="xl" weight="700" glow={0}>-{stakeAmount.toFixed(4)} SOL</GlowText>
                                 </View>
                             )}
                         </>
-                    )}
-
-                    {!isWin && (
-                        <View style={[styles.statRow, styles.rewardRow]}>
-                            <GlowText color={Colors.danger} size="md" weight="700" glow={0}>LOST STAKE</GlowText>
-                            <GlowText color={Colors.danger} size="xl" weight="700" glow={0}>-{stakeAmount.toFixed(4)} SOL</GlowText>
-                        </View>
                     )}
                 </NeonCard>
             </Animated.View>
