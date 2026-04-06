@@ -92,7 +92,7 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
         () => (stakeAmount * multiplier).toFixed(4),
         [stakeAmount, multiplier],
     );
-    const canStart = stakeAmount > 0 && stakeAmount <= balance && publicKey !== null && !loading;
+    const canStart = stakeAmount >= 0.001 && stakeAmount <= balance && publicKey !== null && !loading;
 
     const anim0 = useFadeInDown(50);
     const anim1 = useFadeInDown(50 + Animations.stagger);
@@ -166,6 +166,11 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     const handleStart = useCallback(async () => {
         if (!publicKey || !session) {
             Alert.alert('Wallet Required', 'Connect Phantom before starting a game.');
+            return;
+        }
+
+        if (stakeAmount < 0.001) {
+            Alert.alert('Minimum Stake', 'Minimum stake is 0.001 SOL.');
             return;
         }
 
@@ -254,7 +259,7 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
                         onChangeText={(text) => setStakeAmount(parseFloat(text) || 0)}
                         keyboardType="decimal-pad"
                         placeholderTextColor={Colors.textMuted}
-                        placeholder="0.1"
+                        placeholder="0.001"
                     />
                     <GlowText color={Colors.textMuted} size="xs" glow={0}>
                         Available: {balance.toFixed(4)} SOL

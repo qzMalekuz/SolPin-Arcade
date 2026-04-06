@@ -141,7 +141,7 @@ const flippers=[
 ];
 
 // ──── STATE ────
-let ball={x:TW-40,y:TH-190,vx:0,vy:0,alive:true,go:false};
+let ball={x:TW-40,y:TH-190,vx:0,vy:0,alive:true,go:false,angle:0,glow:0,sq:1,sqNx:0,sqNy:1};
 let score=0,combo=0,cT=0,tLeft=DUR,st='playing',lt=performance.now(),tt=0;
 let lp=0,chrg=false,parts=[],pops=[],ripples=[];
 let shake={x:0,y:0,t:0};
@@ -207,7 +207,7 @@ function step(dt){
         ball.vx=b.vx;ball.vy=b.vy;
         if(Math.abs(ball.vx)>MAX_V*.7)ball.vx*=.7;
         const spd=Math.hypot(ball.vx,ball.vy);
-        if(spd>1.5){part(wpx,wpy,2);sndWall();send('haptic',{level:'light'});}
+        if(spd>1.5){part(wpx,wpy,2);sndWall();send('haptic',{level:'light'});ball.glow=Math.min(1,ball.glow+0.45);ball.sq=0.85;ball.sqNx=fnx;ball.sqNy=fny;}
       }
     }
 
@@ -236,7 +236,7 @@ function step(dt){
         addS(b.pts,b.x+nx*b.r,b.y+ny*b.r);
         part(b.x+nx*b.r,b.y+ny*b.r,12,1.3);
         ripple(b.x,b.y,b.r+15);
-        doShake(4);sndBump();send('haptic',{level:'medium'});
+        doShake(4);sndBump();send('haptic',{level:'medium'});ball.glow=1;ball.sq=0.72;ball.sqNx=nx;ball.sqNy=ny;
         lastNx=nx;lastNy=ny;
       }
     }
@@ -262,7 +262,7 @@ function step(dt){
             cv=clampV(ball.vx,ball.vy,MAX_V);ball.vx=cv.vx;ball.vy=cv.vy;
             f.flash=1;setTimeout(()=>{f.flash=0;},100);
             part(cx,cy,8,1.3);addS(30,cx,cy);ripple(cx,cy,20);
-            doShake(3);sndFlip();send('haptic',{level:'medium'});
+            doShake(3);sndFlip();send('haptic',{level:'medium'});ball.glow=0.8;ball.sq=0.78;ball.sqNx=nx;ball.sqNy=ny;
           }else{
             const b=refl(ball.vx,ball.vy,nx,ny,0.6);
             ball.vx=b.vx;ball.vy=b.vy;
@@ -299,6 +299,10 @@ function step(dt){
     if(spd>0.1&&spd<MIN_V){const f=MIN_V/spd;ball.vx*=f;ball.vy*=f;}
   }
 
+  // Ball rotation + state decay
+  if(ball.go){ball.angle+=ball.vx*dt*2.5;}
+  if(ball.glow>0)ball.glow=Math.max(0,ball.glow-dt*3.5);
+  if(ball.sq<1)ball.sq=Math.min(1,ball.sq+dt*9);
   // Flipper angle update
   for(const f of flippers){
     const tgt=f.on?f.flip:f.rest;
@@ -430,21 +434,65 @@ function draw(t){
   for(let i=ripples.length-1;i>=0;i--){const rp=ripples[i];rp.r+=(rp.maxR-rp.r)*.15;rp.l-=.035;if(rp.l<=0){ripples.splice(i,1);continue;}X.globalAlpha=rp.l*.4;X.strokeStyle='#fff';X.lineWidth=ts(1.5);X.beginPath();X.arc(tx(rp.x)+sx,ty(rp.y)+sy,ts(rp.r),0,T2);X.stroke();}
   X.globalAlpha=1;
 
-  // Ball
+  // Ball — Solana pinball sphere
   if(ball.alive){
+    const bx=tx(ball.x)+sx,by=ty(ball.y)+sy,br=ts(BR);
     const spd=Math.hypot(ball.vx,ball.vy);
-    if(ball.go&&spd>2){X.globalAlpha=.2;for(let i=1;i<=4;i++){X.fillStyle='rgba(255,255,255,'+(0.1/i)+')';X.beginPath();X.arc(tx(ball.x-ball.vx*i*.1)+sx,ty(ball.y-ball.vy*i*.1)+sy,ts(BR*(1-i*.12)),0,T2);X.fill();}X.globalAlpha=1;}
-    const haloI=Math.min(.3+spd*.015,.5);
-    const halo=X.createRadialGradient(tx(ball.x)+sx,ty(ball.y)+sy,0,tx(ball.x)+sx,ty(ball.y)+sy,ts(BR*2.5));
-    halo.addColorStop(0,'rgba(255,255,255,'+haloI+')');halo.addColorStop(1,'rgba(255,255,255,0)');
-    X.fillStyle=halo;X.beginPath();X.arc(tx(ball.x)+sx,ty(ball.y)+sy,ts(BR*2.5),0,T2);X.fill();
-    const bg2=X.createRadialGradient(tx(ball.x-2)+sx,ty(ball.y-3)+sy,ts(1),tx(ball.x)+sx,ty(ball.y)+sy,ts(BR));
-    bg2.addColorStop(0,'#fff');bg2.addColorStop(.4,'#ccc');bg2.addColorStop(1,'#666');
-    X.shadowColor='rgba(255,255,255,.5)';X.shadowBlur=ts(14);X.fillStyle=bg2;
-    X.beginPath();X.arc(tx(ball.x)+sx,ty(ball.y)+sy,ts(BR),0,T2);X.fill();
-    X.shadowBlur=0;X.strokeStyle='rgba(255,255,255,0.4)';X.lineWidth=ts(1.2);
-    X.beginPath();X.arc(tx(ball.x)+sx,ty(ball.y)+sy,ts(BR),0,T2);X.stroke();
-    X.fillStyle='rgba(255,255,255,0.7)';X.beginPath();X.arc(tx(ball.x-3)+sx,ty(ball.y-4)+sy,ts(3),0,T2);X.fill();
+    const ga=ball.glow;
+    // Ground shadow (depth illusion)
+    X.save();X.globalAlpha=Math.min(0.45,0.22+spd*0.007);
+    const shd=X.createRadialGradient(bx+ts(2),by+ts(5),0,bx+ts(2),by+ts(4),br*1.5);
+    shd.addColorStop(0,'rgba(0,0,0,0.7)');shd.addColorStop(1,'rgba(0,0,0,0)');
+    X.fillStyle=shd;X.beginPath();X.ellipse(bx+ts(2),by+ts(4),br*1.4,br*0.6,0,0,T2);X.fill();
+    X.restore();
+    // Motion blur trails
+    if(ball.go&&spd>3){for(let i=1;i<=3;i++){X.globalAlpha=0.11/i;X.fillStyle='rgba(140,200,255,0.7)';X.beginPath();X.arc(tx(ball.x-ball.vx*i*.14)+sx,ty(ball.y-ball.vy*i*.14)+sy,ts(BR*(1-i*.13)),0,T2);X.fill();}X.globalAlpha=1;}
+    // Outer glow (ambient + collision pulse)
+    const gr=br*(2.0+ga*1.8),gi=Math.min(0.16+spd*0.011+ga*0.44,0.52);
+    const og=X.createRadialGradient(bx,by,br*0.4,bx,by,gr);
+    og.addColorStop(0,ga>0.15?'rgba(70,255,175,'+Math.min(gi,0.46)+')':'rgba(255,255,255,'+Math.min(gi,0.33)+')');
+    og.addColorStop(0.5,ga>0.15?'rgba(50,130,255,'+(gi*0.22)+')':'rgba(255,255,255,'+(gi*0.2)+')');
+    og.addColorStop(1,'rgba(0,0,0,0)');
+    X.fillStyle=og;X.beginPath();X.arc(bx,by,gr,0,T2);X.fill();
+    // Squash/stretch transform
+    X.save();X.translate(bx,by);
+    const isH=Math.abs(ball.sqNx)>Math.abs(ball.sqNy);
+    const sa=ball.sq,sb=1+(1-ball.sq)*0.38;
+    isH?X.scale(sa,sb):X.scale(sb,sa);
+    // Clip to ball circle
+    X.save();X.beginPath();X.arc(0,0,br,0,T2);X.clip();
+    // Dark metallic base
+    const bg2=X.createRadialGradient(-br*0.28,-br*0.32,br*0.04,0,0,br);
+    bg2.addColorStop(0,'#252525');bg2.addColorStop(0.5,'#0a0a0a');bg2.addColorStop(1,'#000');
+    X.fillStyle=bg2;X.beginPath();X.arc(0,0,br,0,T2);X.fill();
+    // Solana logo — 3 rotating parallelogram bars
+    X.save();X.rotate(ball.angle);
+    const ls=br*0.5,bH=ls*0.23,bW=ls*1.75,shear=ls*0.28,sp2=ls*0.38;
+    const lg=X.createLinearGradient(-bW/2,-sp2,bW/2,sp2);
+    lg.addColorStop(0,'rgba(0,255,163,0.92)');lg.addColorStop(0.5,'rgba(100,175,255,0.87)');lg.addColorStop(1,'rgba(200,80,255,0.87)');
+    X.fillStyle=lg;
+    for(let i=0;i<3;i++){const y=[-sp2,0,sp2][i],fl=i===1?-1:1;X.beginPath();X.moveTo(-bW/2+shear*fl,y-bH/2);X.lineTo(bW/2+shear*fl,y-bH/2);X.lineTo(bW/2-shear*fl,y+bH/2);X.lineTo(-bW/2-shear*fl,y+bH/2);X.closePath();X.fill();}
+    X.restore();
+    // Inner vignette for sphere depth
+    const vig=X.createRadialGradient(0,0,br*0.35,0,0,br);
+    vig.addColorStop(0,'rgba(0,0,0,0)');vig.addColorStop(0.68,'rgba(0,0,0,0.08)');vig.addColorStop(1,'rgba(0,0,0,0.82)');
+    X.fillStyle=vig;X.beginPath();X.arc(0,0,br,0,T2);X.fill();
+    X.restore(); // end clip
+    // Rim stroke
+    X.shadowColor='rgba(255,255,255,0.18)';X.shadowBlur=ts(3);
+    X.strokeStyle='rgba(255,255,255,0.2)';X.lineWidth=ts(1.1);
+    X.beginPath();X.arc(0,0,br,0,T2);X.stroke();X.shadowBlur=0;
+    // Primary specular (top-left glint)
+    const spec=X.createRadialGradient(-br*0.26,-br*0.3,0,-br*0.26,-br*0.3,br*0.44);
+    spec.addColorStop(0,'rgba(255,255,255,0.78)');spec.addColorStop(0.38,'rgba(255,255,255,0.28)');spec.addColorStop(1,'rgba(255,255,255,0)');
+    X.fillStyle=spec;X.beginPath();X.arc(-br*0.26,-br*0.3,br*0.44,0,T2);X.fill();
+    // Sharp glint
+    X.fillStyle='rgba(255,255,255,0.92)';X.beginPath();X.arc(-br*0.28,-br*0.37,ts(1.3),0,T2);X.fill();
+    // Rim light (bottom-right depth cue)
+    const rl=X.createRadialGradient(br*0.38,br*0.42,0,br*0.38,br*0.42,br*0.48);
+    rl.addColorStop(0,'rgba(255,255,255,0.13)');rl.addColorStop(1,'rgba(255,255,255,0)');
+    X.fillStyle=rl;X.beginPath();X.arc(br*0.38,br*0.42,br*0.48,0,T2);X.fill();
+    X.restore(); // end translate+squash
   }
 
   // Particles

@@ -52,7 +52,7 @@ const calculateMultiplier = (duration: Duration, difficulty: Difficulty): number
 };
 
 export const useGameStore = create<GameState>((set, get) => ({
-    stakeAmount: 0.1,
+    stakeAmount: 0.01,
     duration: 30,
     difficulty: 'easy',
     multiplier: MULTIPLIER_TABLE[30].easy,
