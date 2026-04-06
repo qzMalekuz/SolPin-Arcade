@@ -51,6 +51,14 @@ export const getPhantomEncryptionPubKey = (): Uint8Array | null => {
     return _phantomEncryptionPubKey;
 };
 
+export const hasPhantomEncryptionPubKey = (): boolean => {
+    return _phantomEncryptionPubKey !== null;
+};
+
+export const clearPhantomSession = (): void => {
+    _phantomEncryptionPubKey = null;
+};
+
 /** Redirect URI that Phantom will callback to */
 const getRedirectUri = (path: string): string => {
     return Linking.createURL(path);
@@ -335,6 +343,16 @@ export const buildDisconnectUrl = (session: string): string => {
         session,
     });
     return `${PHANTOM_BASE}${PHANTOM_DISCONNECT}?${params.toString()}`;
+};
+
+export const getPhantomSignatureFromUrl = (
+    url: string,
+): string | null => {
+    const parsed = parseSignAndSendResponse(url);
+    if (!parsed?.signature) {
+        return null;
+    }
+    return parsed.signature;
 };
 
 // ------------------------------------------------------------------

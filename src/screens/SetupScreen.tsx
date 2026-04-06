@@ -34,6 +34,8 @@ import { generateGameSeed } from '../solana/anticheat';
 import {
     buildSignAndSendUrl,
     parseSignAndSendResponse,
+    getPhantomErrorMessage,
+    hasPhantomEncryptionPubKey,
     openPhantomLink,
 } from '../solana/phantom';
 import { mwaSignAndSendTransactions } from '../solana/mwa';
@@ -65,6 +67,7 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     } = useGameStore();
     const { publicKey, balance, session, authToken } = useWalletStore();
     const [loading, setLoading] = useState(false);
+    const phantomSigningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const estimatedPayout = useMemo(() => (stakeAmount * multiplier).toFixed(4), [stakeAmount, multiplier]);
     const canStart = stakeAmount > 0 && stakeAmount <= balance && publicKey !== null && !loading;
@@ -76,24 +79,64 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     const anim4 = useFadeInDown(50 + Animations.stagger * 4);
     const anim5 = useFadeInDown(50 + Animations.stagger * 5);
 
-    // Listen for Phantom signAndSend callback
+    const clearPhantomSigningTimeout = useCallback(() => {
+        if (phantomSigningTimeoutRef.current) {
+            clearTimeout(phantomSigningTimeoutRef.current);
+            phantomSigningTimeoutRef.current = null;
+        }
+    }, []);
+
+    const handlePhantomSignRedirect = useCallback((url: string) => {
+        if (!url.includes('onSignAndSend')) {
+            return;
+        }
+
+        clearPhantomSigningTimeout();
+        const phantomError = getPhantomErrorMessage(
+            url,
+            'The wallet could not complete the transaction request.',
+        );
+
+        if (phantomError) {
+            setLoading(false);
+            Alert.alert('Staking Failed', phantomError);
+            return;
+        }
+
+        const result = parseSignAndSendResponse(url);
+        if (result?.signature) {
+            setTxSignature(result.signature);
+            setTimeRemaining(duration);
+            setStatus('playing');
+            setLoading(false);
+            navigation.replace('Game');
+            return;
+        }
+
+        setLoading(false);
+        Alert.alert('Staking Failed', 'Could not verify the wallet signature. Please reconnect your wallet and try again.');
+    }, [clearPhantomSigningTimeout, duration, navigation, setStatus, setTimeRemaining, setTxSignature]);
+
+    // Listen for Phantom signAndSend callback, including cold start resume
     useEffect(() => {
-        const subscription = Linking.addEventListener('url', ({ url }) => {
-            if (url.includes('onSignAndSend')) {
-                const result = parseSignAndSendResponse(url);
-                if (result && result.signature) {
-                    setTxSignature(result.signature);
-                    setTimeRemaining(duration);
-                    setStatus('playing');
-                    navigation.replace('Game');
-                } else {
-                    Alert.alert('Staking Failed', 'Phantom did not return a valid transaction signature.');
-                }
-                setLoading(false);
+        const handleInitialUrl = async () => {
+            const initialUrl = await Linking.getInitialURL();
+            if (initialUrl) {
+                handlePhantomSignRedirect(initialUrl);
             }
+        };
+
+        handleInitialUrl();
+
+        const subscription = Linking.addEventListener('url', ({ url }) => {
+            handlePhantomSignRedirect(url);
         });
-        return () => subscription.remove();
-    }, [duration, navigation, setStatus, setTimeRemaining, setTxSignature]);
+
+        return () => {
+            clearPhantomSigningTimeout();
+            subscription.remove();
+        };
+    }, [clearPhantomSigningTimeout, handlePhantomSignRedirect]);
 
     const handleStart = useCallback(async () => {
         if (!publicKey || !session) { Alert.alert('Error', 'Wallet not connected'); return; }
@@ -119,14 +162,27 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
             }
 
             // Phantom deep-link fallback
+            if (!hasPhantomEncryptionPubKey()) {
+                setLoading(false);
+                Alert.alert('Reconnect Required', 'Phantom session details were lost. Please reconnect your wallet and try again.');
+                navigation.navigate('Wallet');
+                return;
+            }
+
             const signUrl = buildSignAndSendUrl(tx, session);
+            clearPhantomSigningTimeout();
+            phantomSigningTimeoutRef.current = setTimeout(() => {
+                setLoading(false);
+                Alert.alert('Wallet Timeout', 'Phantom did not return to the app in time. Please try staking again.');
+            }, 60000);
             await openPhantomLink(signUrl);
             // Navigation happens in the deep-link listener above when Phantom calls back
         } catch (err: any) {
+            clearPhantomSigningTimeout();
             Alert.alert('Transaction Failed', err.message || 'Something went wrong.');
             setLoading(false);
         }
-    }, [publicKey, session, authToken, stakeAmount, balance, duration, difficulty, navigation, setStatus, setTimeRemaining, setTxSignature]);
+    }, [publicKey, session, authToken, stakeAmount, balance, duration, difficulty, navigation, setStatus, setTimeRemaining, setTxSignature, clearPhantomSigningTimeout]);
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.lg }]}>

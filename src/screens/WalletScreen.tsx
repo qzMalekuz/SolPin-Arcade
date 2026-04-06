@@ -16,13 +16,16 @@ import { NeonButton } from '../components/NeonButton';
 import { NeonCard } from '../components/NeonCard';
 import { GlowText } from '../components/GlowText';
 import { useWalletStore } from '../store/walletStore';
+import { useGameStore } from '../store/gameStore';
 import {
     buildConnectUrl,
     parseConnectResponse,
     buildDisconnectUrl,
     getPhantomErrorMessage,
+    getPhantomSignatureFromUrl,
     openPhantomLink,
     truncateAddress,
+    clearPhantomSession,
 } from '../solana/phantom';
 import {
     isMWAAvailable,
@@ -54,6 +57,7 @@ const useFadeInDown = (delay: number = 0) => {
 
 export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
+    const { duration, setStatus, setTimeRemaining, setTxSignature } = useGameStore();
     const {
         publicKey,
         connected,
@@ -157,8 +161,39 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     useEffect(() => {
         const handleInitialUrl = async () => {
             const initialUrl = await Linking.getInitialURL();
-            if (initialUrl && initialUrl.includes('onConnect')) {
+            if (!initialUrl) {
+                return;
+            }
+
+            if (initialUrl.includes('onConnect')) {
                 handleConnectRedirect(initialUrl);
+                return;
+            }
+
+            if (initialUrl.includes('onSignAndSend')) {
+                const phantomError = getPhantomErrorMessage(
+                    initialUrl,
+                    'The wallet returned an invalid transaction response.',
+                );
+
+                if (phantomError) {
+                    Alert.alert('Transaction Failed', phantomError);
+                    return;
+                }
+
+                const signature = getPhantomSignatureFromUrl(initialUrl);
+                if (!signature) {
+                    Alert.alert(
+                        'Transaction Failed',
+                        'Could not verify the wallet signature. Please reconnect and try again.',
+                    );
+                    return;
+                }
+
+                setTxSignature(signature);
+                setTimeRemaining(duration);
+                setStatus('playing');
+                navigation.replace('Game');
             }
         };
         handleInitialUrl();
@@ -166,9 +201,34 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         const subscription = Linking.addEventListener('url', ({ url }) => {
             if (url.includes('onConnect')) {
                 handleConnectRedirect(url);
+            } else if (url.includes('onSignAndSend')) {
+                const phantomError = getPhantomErrorMessage(
+                    url,
+                    'The wallet returned an invalid transaction response.',
+                );
+
+                if (phantomError) {
+                    Alert.alert('Transaction Failed', phantomError);
+                    return;
+                }
+
+                const signature = getPhantomSignatureFromUrl(url);
+                if (!signature) {
+                    Alert.alert(
+                        'Transaction Failed',
+                        'Could not verify the wallet signature. Please reconnect and try again.',
+                    );
+                    return;
+                }
+
+                setTxSignature(signature);
+                setTimeRemaining(duration);
+                setStatus('playing');
+                navigation.replace('Game');
             } else if (url.includes('onDisconnect')) {
                 clearPendingPhantomTimeout();
                 setPendingConnector(null);
+                clearPhantomSession();
                 disconnect();
             }
         });
@@ -177,7 +237,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
             clearPendingPhantomTimeout();
             subscription.remove();
         };
-    }, [clearPendingPhantomTimeout, disconnect, handleConnectRedirect]);
+    }, [clearPendingPhantomTimeout, disconnect, duration, handleConnectRedirect, navigation, setStatus, setTimeRemaining, setTxSignature]);
 
     // ------------------------------------------------------------------
     // MWA Connect (primary on Android)
@@ -263,6 +323,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         }
 
         setPendingConnector(null);
+        clearPhantomSession();
         disconnect();
     }, [authToken, beginDisconnect, disconnect, failConnection, isBusy, session]);
 
