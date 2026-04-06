@@ -8,11 +8,8 @@
  *           signTransactions, signMessages, get_capabilities
  */
 
-import { Platform } from 'react-native';
-import {
-    transact,
-    Web3MobileWallet,
-} from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
+import { NativeModules, Platform } from 'react-native';
+import type { Web3MobileWallet } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
 import {
     PublicKey,
     Transaction,
@@ -32,6 +29,7 @@ const APP_IDENTITY = {
 
 const CLUSTER = getMwaCluster();
 const REQUEST_TIMEOUT_MS = 45000;
+const MWA_NATIVE_MODULE = 'SolanaMobileWalletAdapter';
 
 // ------------------------------------------------------------------
 // Platform check
@@ -43,7 +41,16 @@ const REQUEST_TIMEOUT_MS = 45000;
  * Phantom deep links.
  */
 export const isMWAAvailable = (): boolean => {
-    return Platform.OS === 'android';
+    if (Platform.OS !== 'android') {
+        return false;
+    }
+
+    return Boolean((NativeModules as Record<string, unknown>)[MWA_NATIVE_MODULE]);
+};
+
+const getTransact = async () => {
+    const mwa = await import('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
+    return mwa.transact;
 };
 
 // ------------------------------------------------------------------
@@ -174,7 +181,15 @@ const authorizeWithWallet = async (
  * and request authorization with Sign in with Solana (SIWS).
  */
 export const mwaAuthorize = async (): Promise<MWAAuthResult> => {
+    if (!isMWAAvailable()) {
+        throw normalizeMWAError(
+            new Error('No compatible mobile wallet was found on this device.'),
+            'connect',
+        );
+    }
+
     try {
+        const transact = await getTransact();
         return await withTimeout(
             transact(async (wallet: Web3MobileWallet) => authorizeWithWallet(wallet)),
             'Wallet request timed out. Please try again.',
@@ -195,7 +210,15 @@ export const mwaAuthorize = async (): Promise<MWAAuthResult> => {
 export const mwaReauthorize = async (
     authToken: string,
 ): Promise<MWAAuthResult> => {
+    if (!isMWAAvailable()) {
+        throw normalizeMWAError(
+            new Error('No compatible mobile wallet was found on this device.'),
+            'reconnect',
+        );
+    }
+
     try {
+        const transact = await getTransact();
         return await withTimeout(
             transact(async (wallet: Web3MobileWallet) => authorizeWithWallet(wallet, authToken)),
             'Wallet session timed out. Please reconnect.',
@@ -217,7 +240,15 @@ export const mwaSignAndSendTransactions = async (
     transactions: Transaction[],
     authToken: string,
 ): Promise<string[]> => {
+    if (!isMWAAvailable()) {
+        throw normalizeMWAError(
+            new Error('No compatible mobile wallet was found on this device.'),
+            'sign',
+        );
+    }
+
     try {
+        const transact = await getTransact();
         const signatures = await withTimeout(
             transact(async (wallet: Web3MobileWallet) => {
                 await authorizeWithWallet(wallet, authToken);
@@ -270,7 +301,15 @@ export const mwaSignTransactions = async (
     transactions: Transaction[],
     authToken: string,
 ): Promise<Transaction[]> => {
+    if (!isMWAAvailable()) {
+        throw normalizeMWAError(
+            new Error('No compatible mobile wallet was found on this device.'),
+            'sign',
+        );
+    }
+
     try {
+        const transact = await getTransact();
         return await withTimeout(
             transact(async (wallet: Web3MobileWallet) => {
                 await authorizeWithWallet(wallet, authToken);
@@ -299,7 +338,15 @@ export const mwaSignMessages = async (
     addresses: string[],
     authToken: string,
 ): Promise<Uint8Array[]> => {
+    if (!isMWAAvailable()) {
+        throw normalizeMWAError(
+            new Error('No compatible mobile wallet was found on this device.'),
+            'sign',
+        );
+    }
+
     try {
+        const transact = await getTransact();
         return await withTimeout(
             transact(async (wallet: Web3MobileWallet) => {
                 await authorizeWithWallet(wallet, authToken);
@@ -336,9 +383,21 @@ export interface WalletCapabilities {
 export const mwaGetCapabilities = async (
     authToken: string,
 ): Promise<WalletCapabilities> => {
+    if (!isMWAAvailable()) {
+        return {
+            supportsSignAndSendTransactions: false,
+            supportsSignTransactions: false,
+            supportsSignMessages: false,
+            supportsCloneAuthorization: false,
+            maxTransactionsPerRequest: 0,
+            maxMessagesPerRequest: 0,
+        };
+    }
+
     let caps: any = null;
 
     try {
+        const transact = await getTransact();
         caps = await withTimeout(
             transact(async (wallet: Web3MobileWallet) => {
                 await authorizeWithWallet(wallet, authToken);
@@ -373,7 +432,12 @@ export const mwaGetCapabilities = async (
  * Deauthorize the current session with the wallet.
  */
 export const mwaDeauthorize = async (authToken: string): Promise<void> => {
+    if (!isMWAAvailable()) {
+        return;
+    }
+
     try {
+        const transact = await getTransact();
         await withTimeout(
             transact(async (wallet: Web3MobileWallet) => {
                 await authorizeWithWallet(wallet, authToken);

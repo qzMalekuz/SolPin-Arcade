@@ -8,6 +8,7 @@ import {
     Platform,
     Animated,
     Easing,
+    Pressable,
 } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -134,7 +135,16 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
                     {combo > 1 && <GlowText color="#888" size="xs" weight="600" glow={0}>{`${combo.toFixed(1)}x`}</GlowText>}
                 </View>
                 <View style={styles.hudCenter}>
-                    <NeonButton title={paused ? '▶' : '⏸'} onPress={paused ? handleResume : handlePause} variant="secondary" size="sm" style={styles.pauseBtn} haptic={false} />
+                    <Pressable onPress={paused ? handleResume : handlePause} style={styles.pauseBtn} hitSlop={8}>
+                        {paused ? (
+                            <View style={styles.playIcon} />
+                        ) : (
+                            <View style={styles.pauseIcon}>
+                                <View style={styles.pauseBar} />
+                                <View style={styles.pauseBar} />
+                            </View>
+                        )}
+                    </Pressable>
                     {!launched && gameReady && (
                         <GlowText color="#555" size="xs" align="center" glow={0} style={styles.launchHint}>{'HOLD RIGHT\nTO LAUNCH'}</GlowText>
                     )}
@@ -180,7 +190,38 @@ const styles = StyleSheet.create({
     hudColRight: { flex: 1, alignItems: 'flex-end' },
     hudCenter: { flex: 1, alignItems: 'center', justifyContent: 'flex-start' },
     label: { letterSpacing: 2, marginBottom: 2 },
-    pauseBtn: { paddingHorizontal: 14, paddingVertical: 5, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.08)', height: 36 },
+    pauseBtn: {
+        width: 54,
+        height: 36,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+        backgroundColor: 'rgba(255,255,255,0.04)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    pauseIcon: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    pauseBar: {
+        width: 3,
+        height: 12,
+        borderRadius: 1,
+        backgroundColor: '#f2f2f2',
+    },
+    playIcon: {
+        width: 0,
+        height: 0,
+        borderTopWidth: 7,
+        borderBottomWidth: 7,
+        borderLeftWidth: 10,
+        borderTopColor: 'transparent',
+        borderBottomColor: 'transparent',
+        borderLeftColor: '#f2f2f2',
+        marginLeft: 2,
+    },
     launchHint: { marginTop: 6 },
     pauseOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(5,5,5,0.92)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
     pauseSub: { marginTop: Spacing.sm, marginBottom: Spacing.lg },

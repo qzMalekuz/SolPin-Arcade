@@ -33,7 +33,9 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 import * as SplashScreen from 'expo-splash-screen';
 
 // Keep the splash screen visible while we fetch resources
-SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync().catch(() => {
+  // Ignore if splash is already controlled by the host environment (e.g., Expo Go).
+});
 
 export default function App() {
   const [appIsReady, setAppIsReady] = React.useState(false);
@@ -41,8 +43,11 @@ export default function App() {
   useEffect(() => {
     async function prepare() {
       try {
-        // Initialize audio
-        initAudio();
+        // Initialize audio without blocking app startup forever.
+        await Promise.race([
+          initAudio(),
+          new Promise((resolve) => setTimeout(resolve, 1200)),
+        ]);
         // Artificial delay for smooth splash screen branding visibility
         await new Promise((resolve) => setTimeout(resolve, 800));
       } catch (e) {
@@ -60,9 +65,11 @@ export default function App() {
     };
   }, []);
 
-  const onLayoutRootView = React.useCallback(async () => {
+  useEffect(() => {
     if (appIsReady) {
-      await SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => {
+        // Prevent startup deadlock if splash API fails in Expo Go.
+      });
     }
   }, [appIsReady]);
 
@@ -71,7 +78,7 @@ export default function App() {
   }
 
   return (
-    <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
+    <GestureHandlerRootView style={styles.root}>
       <NavigationContainer
         theme={{
           dark: true,

@@ -121,12 +121,12 @@ export const ButtonSizes = {
 
 // ──── GAME CONSTANTS ────
 export type Difficulty = 'easy' | 'medium' | 'hard';
-export type Duration = 30 | 60 | 90;
+export type Duration = 30 | 45 | 60;
 
 export const MULTIPLIER_TABLE: Record<Duration, Record<Difficulty, number>> = {
   30: { easy: 1.2, medium: 1.4, hard: 1.8 },
+  45: { easy: 1.35, medium: 1.6, hard: 2.0 },
   60: { easy: 1.5, medium: 1.8, hard: 2.2 },
-  90: { easy: 1.8, medium: 2.2, hard: 2.5 },
 };
 
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
@@ -135,4 +135,4 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   hard: 'Hard',
 };
 
-export const DURATION_OPTIONS: Duration[] = [30, 60, 90];
+export const DURATION_OPTIONS: Duration[] = [30, 45, 60];

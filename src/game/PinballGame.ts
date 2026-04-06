@@ -75,8 +75,7 @@ const walls=[
   {x1:TW-22,y1:50,x2:TW-62,y2:120},
   // Launch lane — TWO parallel walls only, NO diagonal closing wall
   // Ball exits through open top gap naturally
-  {x1:TW-14,y1:68,x2:TW-14,y2:TH-25},
-  {x1:TW-56,y1:68,x2:TW-56,y2:215},
+  // Removed extra guide lines to avoid duplicate parallel lane artifacts.
   // Slingshot triangles — REAL collision, moved well inward (40px+ gap from walls)
   // Left: top (85,TH-265), outer (75,TH-190), inner (120,TH-165)
   {x1:85,y1:TH-265,x2:120,y2:TH-165},   // top to inner (faces center)
@@ -308,8 +307,11 @@ function step(dt){
     f.angle+=Math.abs(df)<mv?df:Math.sign(df)*mv;
   }
 
-  tLeft=Math.max(0,tLeft-dt);
-  if(tLeft<=0){st='won';send('gameover',{result:'won',score});return;}
+  // Start countdown only after the ball is launched.
+  if(ball.go){
+    tLeft=Math.max(0,tLeft-dt);
+    if(tLeft<=0){st='won';send('gameover',{result:'won',score});return;}
+  }
   send('timer',{timeLeft:Math.ceil(tLeft)});
   cT+=dt;if(cT>2.5)combo=0;
 }
@@ -420,8 +422,9 @@ function draw(t){
   X.setLineDash([ts(6),ts(5)]);
   X.beginPath();X.moveTo(tx(lTipX+5)+sx,ty(TH-18)+sy);X.lineTo(tx(rTipX-5)+sx,ty(TH-18)+sy);X.stroke();
   X.setLineDash([]);X.shadowBlur=0;
-  X.fillStyle='rgba(255,255,255,0.18)';X.font=ts(7)+'px monospace';X.textAlign='center';X.textBaseline='middle';
-  X.fillText('DRAIN',tx(TW/2)+sx,ty(TH-6)+sy);
+  X.fillStyle='rgba(255,255,255,0.42)';X.shadowColor='rgba(255,255,255,0.2)';X.shadowBlur=ts(6);
+  X.font='bold '+ts(8)+'px monospace';X.textAlign='center';X.textBaseline='middle';
+  X.fillText('DRAIN',tx(TW/2)+sx,ty(TH-7)+sy);X.shadowBlur=0;
 
   // Ripples
   for(let i=ripples.length-1;i>=0;i--){const rp=ripples[i];rp.r+=(rp.maxR-rp.r)*.15;rp.l-=.035;if(rp.l<=0){ripples.splice(i,1);continue;}X.globalAlpha=rp.l*.4;X.strokeStyle='#fff';X.lineWidth=ts(1.5);X.beginPath();X.arc(tx(rp.x)+sx,ty(rp.y)+sy,ts(rp.r),0,T2);X.stroke();}
@@ -460,9 +463,11 @@ function draw(t){
     X.fillStyle='rgba(255,255,255,0.03)';X.fillRect(tx(TW-56)+sx,ty(68)+sy,ts(42),ts(TH-95));
     const p=.5+.5*Math.sin(t*3);X.globalAlpha=.25+.35*p;X.fillStyle='#fff';X.font='bold '+ts(10)+'px sans-serif';X.textAlign='center';
     X.fillText('▼',tx(TW-35)+sx,ty(TH-360)+sy);X.fillText('▼',tx(TW-35)+sx,ty(TH-390)+sy);
-    X.font='bold '+ts(8)+'px sans-serif';X.fillText('HOLD',tx(TW-35)+sx,ty(TH-425)+sy);X.globalAlpha=1;
-    X.globalAlpha=.25;X.font=ts(8)+'px sans-serif';X.fillStyle='#fff';
-    X.fillText('◄ TAP',tx(90)+sx,ty(TH-24)+sy);X.fillText('TAP ►',tx(TW-90)+sx,ty(TH-24)+sy);X.globalAlpha=1;
+    X.font='bold '+ts(8)+'px sans-serif';X.fillText('HOLD',tx(TW-37)+sx,ty(TH-410)+sy);X.globalAlpha=1;
+    X.globalAlpha=.55;X.shadowColor='rgba(255,255,255,0.2)';X.shadowBlur=ts(6);
+    X.font='bold '+ts(8)+'px sans-serif';X.fillStyle='#fff';
+    X.fillText('◄ TAP',tx(90)+sx,ty(TH-24)+sy);X.fillText('TAP ►',tx(TW-90)+sx,ty(TH-24)+sy);
+    X.shadowBlur=0;X.globalAlpha=1;
   }
 
   // Power bar
