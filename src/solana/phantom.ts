@@ -8,6 +8,7 @@ import { getSolanaCluster } from './connection';
 
 const PHANTOM_BASE = 'https://phantom.app/ul/';
 const PHANTOM_CONNECT = 'v1/connect';
+const PHANTOM_SIGN_TRANSACTION = 'v1/signTransaction';
 const PHANTOM_SIGN_AND_SEND = 'v1/signAndSendTransaction';
 const PHANTOM_DISCONNECT = 'v1/disconnect';
 
@@ -276,6 +277,31 @@ export const buildSignAndSendUrl = (
     return `${PHANTOM_BASE}${PHANTOM_SIGN_AND_SEND}?${params.toString()}`;
 };
 
+export const buildSignTransactionUrl = (
+    transaction: Transaction,
+    session: string,
+    redirectPath: string = 'onSignTransaction',
+): string => {
+    const keyPair = getDappKeyPair();
+    const serializedTransaction = transaction.serialize({
+        requireAllSignatures: false,
+    });
+
+    const encrypted = encryptPayload({
+        transaction: bs58.encode(serializedTransaction),
+        session,
+    });
+
+    const params = new URLSearchParams({
+        dapp_encryption_public_key: bs58.encode(keyPair.publicKey),
+        nonce: encrypted.nonce,
+        redirect_link: getRedirectUri(redirectPath),
+        payload: encrypted.payload,
+    });
+
+    return `${PHANTOM_BASE}${PHANTOM_SIGN_TRANSACTION}?${params.toString()}`;
+};
+
 export const parseSignAndSendResponse = (
     url: string,
 ): { signature: string } | null => {
@@ -317,6 +343,50 @@ export const parseSignAndSendResponse = (
 export const getPhantomSignatureFromUrl = (url: string): string | null => {
     const result = parseSignAndSendResponse(url);
     return result?.signature ?? null;
+};
+
+export const parseSignTransactionResponse = (
+    url: string,
+): { transaction: Transaction } | null => {
+    try {
+        if (!phantomEncryptionPublicKey) {
+            return null;
+        }
+
+        const params = getQueryParams(url);
+        if (params.errorCode) {
+            return null;
+        }
+
+        if (!params.nonce || !params.data) {
+            return null;
+        }
+
+        const nonce = bs58.decode(params.nonce);
+        const data = bs58.decode(params.data);
+        const keyPair = getDappKeyPair();
+        const decrypted = nacl.box.open(
+            data,
+            nonce,
+            phantomEncryptionPublicKey,
+            keyPair.secretKey,
+        );
+
+        if (!decrypted) {
+            return null;
+        }
+
+        const payload = JSON.parse(Buffer.from(decrypted).toString('utf-8'));
+        if (!payload.transaction) {
+            return null;
+        }
+
+        return {
+            transaction: Transaction.from(bs58.decode(payload.transaction)),
+        };
+    } catch {
+        return null;
+    }
 };
 
 export const buildDisconnectUrl = (session: string): string => {

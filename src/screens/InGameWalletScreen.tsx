@@ -20,15 +20,16 @@ import { NeonCard } from '../components/NeonCard';
 import { GlowText } from '../components/GlowText';
 import { useInGameWalletStore, WalletTx } from '../store/inGameWalletStore';
 import { useWalletStore } from '../store/walletStore';
+import { getConnection } from '../solana/connection';
 import { getSolPrice, usdToSol } from '../solana/price';
 import { buildTopUpTransaction } from '../solana/transactions';
 import {
-    buildSignAndSendUrl,
+    buildSignTransactionUrl,
     getPhantomErrorMessage,
     hasPhantomSession,
     hydratePhantomSession,
     openPhantomLink,
-    parseSignAndSendResponse,
+    parseSignTransactionResponse,
 } from '../solana/phantom';
 import type { RootStackParamList } from '../../App';
 
@@ -156,33 +157,62 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
         if (!url.includes('onTopUp')) return;
 
         clearTimeout(topUpTimeoutRef.current ?? undefined);
-        setLoadingTopUp(false);
 
         const phantomError = getPhantomErrorMessage(url, 'Top-up transaction failed.');
         if (phantomError) {
+            setLoadingTopUp(false);
             clearPendingTopUp();
             Alert.alert('Top-Up Failed', phantomError);
             return;
         }
 
-        const result = parseSignAndSendResponse(url);
-        if (!result?.signature) {
+        const result = parseSignTransactionResponse(url);
+        if (!result?.transaction) {
+            setLoadingTopUp(false);
             clearPendingTopUp();
-            Alert.alert('Top-Up Failed', 'Could not verify the transaction signature.');
+            Alert.alert('Top-Up Failed', 'Could not verify the signed transaction from Phantom.');
             return;
         }
 
         const pending = useInGameWalletStore.getState().pendingTopUp;
-        if (!pending) return;
+        if (!pending) {
+            setLoadingTopUp(false);
+            return;
+        }
 
-        const credited = await topUp(pending.amountSol, pending.amountUsd, result.signature);
-        clearPendingTopUp();
+        try {
+            const connection = getConnection();
+            const rawTransaction = result.transaction.serialize();
+            const signature = await connection.sendRawTransaction(rawTransaction, {
+                preflightCommitment: 'confirmed',
+            });
 
-        if (credited) {
-            Alert.alert(
-                'Top-Up Successful',
-                `+${pending.amountSol.toFixed(4)} SOL ($${pending.amountUsd.toFixed(2)}) added to your in-game wallet.`,
-            );
+            const latestBlockhash = result.transaction.recentBlockhash;
+            const lastValidBlockHeight = result.transaction.lastValidBlockHeight;
+            if (!latestBlockhash || lastValidBlockHeight == null) {
+                throw new Error('Signed transaction is missing a recent blockhash.');
+            }
+
+            await connection.confirmTransaction({
+                signature,
+                blockhash: latestBlockhash,
+                lastValidBlockHeight,
+            }, 'confirmed');
+
+            const credited = await topUp(pending.amountSol, pending.amountUsd, signature);
+            clearPendingTopUp();
+            setLoadingTopUp(false);
+
+            if (credited) {
+                Alert.alert(
+                    'Top-Up Successful',
+                    `+${pending.amountSol.toFixed(4)} SOL ($${pending.amountUsd.toFixed(2)}) added to your in-game wallet.`,
+                );
+            }
+        } catch (err: any) {
+            setLoadingTopUp(false);
+            clearPendingTopUp();
+            Alert.alert('Top-Up Failed', err?.message ?? 'Could not send the signed transaction to Solana.');
         }
     }, [clearPendingTopUp, topUp]);
 
@@ -232,7 +262,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
             }
 
             const tx = await buildTopUpTransaction(publicKey, amountSol);
-            const signUrl = buildSignAndSendUrl(tx, session, 'onTopUp');
+            const signUrl = buildSignTransactionUrl(tx, session, 'onTopUp');
             setPendingTopUp(amountSol, usdVal);
 
             topUpTimeoutRef.current = setTimeout(() => {
