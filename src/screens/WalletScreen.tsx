@@ -16,6 +16,7 @@ import { NeonButton } from '../components/NeonButton';
 import { NeonCard } from '../components/NeonCard';
 import { GlowText } from '../components/GlowText';
 import { useWalletStore } from '../store/walletStore';
+import { useInGameWalletStore } from '../store/inGameWalletStore';
 import {
     buildConnectUrl,
     buildDisconnectUrl,
@@ -64,6 +65,7 @@ const useFadeInDown = (delay = 0) => {
 export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
     const { duration, setStatus, setTimeRemaining, setTxSignature, setTutorialMode } = useGameStore();
+    const { hydrate, hydrated, getBalanceSol, fetchSolPrice, solPrice } = useInGameWalletStore();
     const {
         publicKey,
         connected,
@@ -82,6 +84,11 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     } = useWalletStore();
     const [pendingAction, setPendingAction] = useState<'connect' | 'disconnect' | null>(null);
     const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        if (!hydrated) void hydrate();
+        void fetchSolPrice();
+    }, []);
 
     const headerAnim = useFadeInDown(100);
     const cardAnim = useFadeInDown(250);
@@ -346,6 +353,35 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                 </NeonCard>
             </Animated.View>
 
+            {connected && (
+                <Animated.View style={cardAnim}>
+                    <NeonCard style={styles.igwCard}>
+                        <View style={styles.igwRow}>
+                            <View>
+                                <GlowText color={Colors.textSecondary} size="xs" weight="600" glow={0} style={styles.igwLabel}>
+                                    IN-GAME WALLET
+                                </GlowText>
+                                <GlowText color={Colors.textPrimary} size="xl" weight="700" glow={0}>
+                                    {getBalanceSol().toFixed(4)} SOL
+                                </GlowText>
+                                {solPrice > 0 && (
+                                    <GlowText color={Colors.textMuted} size="xs" glow={0}>
+                                        ≈ ${(getBalanceSol() * solPrice).toFixed(2)} USD
+                                    </GlowText>
+                                )}
+                            </View>
+                            <NeonButton
+                                title="Manage"
+                                onPress={() => navigation.navigate('InGameWallet')}
+                                variant="secondary"
+                                size="sm"
+                                disabled={isBusy}
+                            />
+                        </View>
+                    </NeonCard>
+                </Animated.View>
+            )}
+
             <Animated.View style={[styles.actions, actionsAnim]}>
                 {connected ? (
                     <>
@@ -427,4 +463,7 @@ const styles = StyleSheet.create({
     actions: { gap: Spacing.sm + 4 },
     tutorialBtn: { marginTop: Spacing.xs },
     footer: { marginTop: Spacing.xl },
+    igwCard: { marginBottom: Spacing.md, marginTop: Spacing.sm },
+    igwRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    igwLabel: { letterSpacing: 1.5, marginBottom: 2 },
 });

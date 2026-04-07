@@ -105,13 +105,15 @@ export const hasPhantomSession = (): boolean => {
 };
 
 const normalizePhantomError = (
+    errorCode?: string,
     errorMessage?: string,
     fallback?: string,
 ): string => {
     const message = errorMessage?.trim().toLowerCase() ?? '';
+    const code = errorCode ?? '';
 
-    if (message.includes('reject') || message.includes('declin')) {
-        return 'Connection request was cancelled in Phantom.';
+    if (message.includes('reject') || message.includes('declin') || code === '4001') {
+        return 'Transaction was cancelled in Phantom.';
     }
 
     if (message.includes('timeout')) {
@@ -120,6 +122,21 @@ const normalizePhantomError = (
 
     if (message.includes('not installed')) {
         return 'Phantom is not installed on this device.';
+    }
+
+    if (
+        message.includes('simulation') ||
+        message.includes('insufficient') ||
+        message.includes('funds') ||
+        message.includes('instruction') ||
+        code === '4900'
+    ) {
+        return `Transaction simulation failed. Check your SOL balance covers the stake + network fees.\n\nCode: ${code || 'unknown'}`;
+    }
+
+    // Surface the raw Phantom error so it can be diagnosed
+    if (errorMessage?.trim()) {
+        return `${fallback ?? 'Transaction failed.'}\n\nPhantom: ${errorMessage.trim()} (${code})`;
     }
 
     return fallback ?? 'Phantom could not complete the request.';
@@ -135,7 +152,7 @@ export const getPhantomErrorMessage = (
             return null;
         }
 
-        return normalizePhantomError(params.errorMessage, fallback);
+        return normalizePhantomError(params.errorCode, params.errorMessage, fallback);
     } catch {
         return fallback ?? 'Phantom could not complete the request.';
     }
@@ -234,6 +251,7 @@ const encryptPayload = (payload: object): { nonce: string; payload: string } => 
 export const buildSignAndSendUrl = (
     transaction: Transaction,
     session: string,
+    redirectPath: string = 'onSignAndSend',
 ): string => {
     const keyPair = getDappKeyPair();
     const serializedTransaction = transaction.serialize({
@@ -248,7 +266,7 @@ export const buildSignAndSendUrl = (
     const params = new URLSearchParams({
         dapp_encryption_public_key: bs58.encode(keyPair.publicKey),
         nonce: encrypted.nonce,
-        redirect_link: getRedirectUri('onSignAndSend'),
+        redirect_link: getRedirectUri(redirectPath),
         payload: encrypted.payload,
     });
 

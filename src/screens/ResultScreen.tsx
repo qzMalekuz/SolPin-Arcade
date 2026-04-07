@@ -10,6 +10,7 @@ import { NeonCard } from '../components/NeonCard';
 import { GlowText } from '../components/GlowText';
 import { AnimatedNumber } from '../components/AnimatedNumber';
 import { useGameStore } from '../store/gameStore';
+import { useInGameWalletStore } from '../store/inGameWalletStore';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
@@ -32,19 +33,26 @@ const useFadeInDown = (delay: number = 0) => {
 export const ResultScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
     const { status, score, stakeAmount, multiplier, txSignature, duration, difficulty, tutorialMode, resetGame } = useGameStore();
+    const { creditWin, recordLoss, solPrice } = useInGameWalletStore();
     const isWin = status === 'won';
 
     const headerAnim = useFadeInDown(100);
     const cardAnim = useFadeInDown(300);
     const actionsAnim = useFadeInDown(500);
 
+    // Credit or record outcome exactly once on mount
     useEffect(() => {
+        if (tutorialMode) return;
         if (isWin) {
+            const payout = stakeAmount * multiplier;
+            creditWin(payout, stakeAmount, solPrice);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
         } else {
+            recordLoss(stakeAmount, solPrice);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
         }
-    }, [isWin]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handlePlayAgain = () => { resetGame(); navigation.replace(tutorialMode ? 'Wallet' : 'Setup'); };
     const handleHome = () => { resetGame(); navigation.popToTop(); };

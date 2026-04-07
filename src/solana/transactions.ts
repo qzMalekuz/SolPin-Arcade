@@ -5,7 +5,7 @@ import {
     SystemProgram,
     LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
-import { getConnection } from './connection';
+import { getConnection, getLatestBlockhashWithFallback } from './connection';
 import { Difficulty, Duration } from '../theme';
 
 // -----------------------------------------------------------------
@@ -22,6 +22,29 @@ export const PROGRAM_ID = new PublicKey(
 export const REWARD_POOL_PUBKEY = new PublicKey(
     'GwL1S3yVCf1T6iNxjReqTfPLzYfG2unXxPZdp5bDjwkP'
 );
+
+/**
+ * Build an in-game wallet top-up: transfer SOL from player to the parent/treasury wallet.
+ * User signs this once; backend (or on-chain verification) credits the in-game balance.
+ */
+export const buildTopUpTransaction = async (
+    payer: PublicKey,
+    amountSol: number,
+): Promise<Transaction> => {
+    const tx = new Transaction();
+    tx.add(
+        SystemProgram.transfer({
+            fromPubkey: payer,
+            toPubkey: REWARD_POOL_PUBKEY,
+            lamports: Math.round(amountSol * LAMPORTS_PER_SOL),
+        })
+    );
+    const { blockhash, lastValidBlockHeight } = await getLatestBlockhashWithFallback();
+    tx.recentBlockhash = blockhash;
+    tx.lastValidBlockHeight = lastValidBlockHeight;
+    tx.feePayer = payer;
+    return tx;
+};
 
 /**
  * Build a stake transaction: transfer SOL from player to the escrow/pool.
@@ -45,16 +68,11 @@ export const buildStakeTransaction = async (
         })
     );
 
-    // Attach recent blockhash
-    const { blockhash, lastValidBlockHeight } =
-        await connection.getLatestBlockhash('confirmed');
+    // Attach recent blockhash with RPC fallback
+    const { blockhash, lastValidBlockHeight } = await getLatestBlockhashWithFallback();
     tx.recentBlockhash = blockhash;
     tx.lastValidBlockHeight = lastValidBlockHeight;
     tx.feePayer = payer;
-
-    // In production, you'd add an Anchor instruction with these params:
-    // instruction: stake(amount, duration, difficulty)
-    // accounts:   [payer, escrow_vault_pda, system_program]
 
     return tx;
 };

@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import * as Linking from 'expo-linking';
 
 import {
     Colors,
@@ -27,17 +26,7 @@ import { NeonButton } from '../components/NeonButton';
 import { NeonCard } from '../components/NeonCard';
 import { GlowText } from '../components/GlowText';
 import { useGameStore } from '../store/gameStore';
-import { useWalletStore } from '../store/walletStore';
-import { buildStakeTransaction } from '../solana/transactions';
-import { generateGameSeed } from '../solana/anticheat';
-import {
-    buildSignAndSendUrl,
-    getPhantomErrorMessage,
-    hasPhantomSession,
-    hydratePhantomSession,
-    openPhantomLink,
-    parseSignAndSendResponse,
-} from '../solana/phantom';
+import { useInGameWalletStore } from '../store/inGameWalletStore';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Setup'>;
@@ -82,17 +71,18 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
         setDifficulty,
         setStatus,
         setTimeRemaining,
-        setTxSignature,
     } = useGameStore();
-    const { publicKey, balance, session } = useWalletStore();
-    const [loading, setLoading] = useState(false);
-    const phantomSigningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const { getBalanceSol, placeBet, solPrice } = useInGameWalletStore();
+    const [stakeInput, setStakeInput] = useState(stakeAmount.toString());
+
+    const inGameBalance = getBalanceSol();
+    const balanceUsd = solPrice > 0 ? inGameBalance * solPrice : null;
 
     const estimatedPayout = useMemo(
         () => (stakeAmount * multiplier).toFixed(4),
         [stakeAmount, multiplier],
     );
-    const canStart = stakeAmount >= 0.001 && stakeAmount <= balance && publicKey !== null && !loading;
+    const canStart = stakeAmount >= 0.001 && stakeAmount <= inGameBalance;
 
     const anim0 = useFadeInDown(50);
     const anim1 = useFadeInDown(50 + Animations.stagger);
@@ -101,136 +91,33 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     const anim4 = useFadeInDown(50 + Animations.stagger * 4);
     const anim5 = useFadeInDown(50 + Animations.stagger * 5);
 
-    const clearPhantomSigningTimeout = useCallback(() => {
-        if (phantomSigningTimeoutRef.current) {
-            clearTimeout(phantomSigningTimeoutRef.current);
-            phantomSigningTimeoutRef.current = null;
-        }
-    }, []);
-
-    const handlePhantomSignRedirect = useCallback((url: string) => {
-        if (!url.includes('onSignAndSend')) {
-            return;
-        }
-
-        clearPhantomSigningTimeout();
-        const phantomError = getPhantomErrorMessage(
-            url,
-            'Phantom could not complete the transaction request.',
-        );
-
-        if (phantomError) {
-            setLoading(false);
-            Alert.alert('Transaction Failed', phantomError);
-            return;
-        }
-
-        const result = parseSignAndSendResponse(url);
-        if (!result?.signature) {
-            setLoading(false);
-            Alert.alert(
-                'Transaction Failed',
-                'The transaction response from Phantom could not be verified.',
-            );
-            return;
-        }
-
-        setTxSignature(result.signature);
-        setTimeRemaining(duration);
-        setStatus('playing');
-        setLoading(false);
-        navigation.replace('Game');
-    }, [clearPhantomSigningTimeout, duration, navigation, setStatus, setTimeRemaining, setTxSignature]);
-
-    useEffect(() => {
-        const handleInitialUrl = async () => {
-            await hydratePhantomSession();
-            const initialUrl = await Linking.getInitialURL();
-            if (initialUrl) {
-                handlePhantomSignRedirect(initialUrl);
-            }
-        };
-
-        handleInitialUrl();
-
-        const subscription = Linking.addEventListener('url', ({ url }) => {
-            handlePhantomSignRedirect(url);
-        });
-
-        return () => {
-            clearPhantomSigningTimeout();
-            subscription.remove();
-        };
-    }, [clearPhantomSigningTimeout, handlePhantomSignRedirect]);
-
-    const handleStart = useCallback(async () => {
-        if (!publicKey || !session) {
-            Alert.alert('Wallet Required', 'Connect Phantom before starting a game.');
-            return;
-        }
-
+    const handleStart = useCallback(() => {
         if (stakeAmount < 0.001) {
             Alert.alert('Minimum Stake', 'Minimum stake is 0.001 SOL.');
             return;
         }
-
-        if (stakeAmount > balance) {
-            Alert.alert('Insufficient Balance', 'You do not have enough SOL.');
+        if (stakeAmount > inGameBalance) {
+            Alert.alert(
+                'Insufficient Balance',
+                'Not enough in-game wallet balance.\nGo to your In-Game Wallet to top up.',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Top Up', onPress: () => navigation.navigate('InGameWallet') },
+                ],
+            );
             return;
         }
 
-        setLoading(true);
-
-        try {
-            await generateGameSeed();
-            await hydratePhantomSession();
-
-            if (!hasPhantomSession()) {
-                setLoading(false);
-                Alert.alert(
-                    'Reconnect Required',
-                    'Your Phantom session expired. Reconnect your wallet and try again.',
-                );
-                navigation.navigate('Wallet');
-                return;
-            }
-
-            const transaction = await buildStakeTransaction(
-                publicKey,
-                stakeAmount,
-                duration,
-                difficulty,
-            );
-
-            const signUrl = buildSignAndSendUrl(transaction, session);
-            clearPhantomSigningTimeout();
-            phantomSigningTimeoutRef.current = setTimeout(() => {
-                setLoading(false);
-                Alert.alert(
-                    'Wallet Timeout',
-                    'Phantom did not return to the app in time. Please try again.',
-                );
-            }, 60000);
-
-            await openPhantomLink(signUrl);
-        } catch (error: any) {
-            clearPhantomSigningTimeout();
-            setLoading(false);
-            Alert.alert(
-                'Transaction Failed',
-                error?.message || 'Something went wrong while opening Phantom.',
-            );
+        const deducted = placeBet(stakeAmount);
+        if (!deducted) {
+            Alert.alert('Insufficient Balance', 'Not enough in-game wallet balance.');
+            return;
         }
-    }, [
-        balance,
-        clearPhantomSigningTimeout,
-        difficulty,
-        duration,
-        navigation,
-        publicKey,
-        session,
-        stakeAmount,
-    ]);
+
+        setTimeRemaining(duration);
+        setStatus('playing');
+        navigation.replace('Game');
+    }, [stakeAmount, inGameBalance, placeBet, duration, navigation, setStatus, setTimeRemaining]);
 
     return (
         <ScrollView
@@ -248,6 +135,21 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
                 </GlowText>
             </Animated.View>
 
+            {/* In-game wallet balance strip */}
+            <Animated.View style={[styles.balanceStrip, anim0]}>
+                <GlowText color={Colors.textSecondary} size="xs" glow={0}>IN-GAME BALANCE</GlowText>
+                <View style={styles.balanceRight}>
+                    <GlowText color={Colors.textPrimary} size="body" weight="700" glow={0}>
+                        {inGameBalance.toFixed(4)} SOL
+                    </GlowText>
+                    {balanceUsd !== null && (
+                        <GlowText color={Colors.textMuted} size="xs" glow={0} style={styles.balanceUsd}>
+                            ≈ ${balanceUsd.toFixed(2)}
+                        </GlowText>
+                    )}
+                </View>
+            </Animated.View>
+
             <Animated.View style={anim1}>
                 <NeonCard style={styles.section}>
                     <GlowText color={Colors.textSecondary} size="sm" glow={0} style={styles.sectionLabel}>
@@ -255,15 +157,36 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
                     </GlowText>
                     <TextInput
                         style={styles.input}
-                        value={stakeAmount.toString()}
-                        onChangeText={(text) => setStakeAmount(parseFloat(text) || 0)}
+                        value={stakeInput}
+                        onChangeText={(text) => {
+                            setStakeInput(text);
+                            const parsed = parseFloat(text);
+                            if (!isNaN(parsed)) setStakeAmount(parsed);
+                        }}
+                        onBlur={() => {
+                            const parsed = parseFloat(stakeInput);
+                            if (isNaN(parsed) || parsed <= 0) {
+                                setStakeAmount(0.001);
+                                setStakeInput('0.001');
+                            } else {
+                                setStakeAmount(parsed);
+                                setStakeInput(parsed.toString());
+                            }
+                        }}
                         keyboardType="decimal-pad"
                         placeholderTextColor={Colors.textMuted}
                         placeholder="0.001"
                     />
-                    <GlowText color={Colors.textMuted} size="xs" glow={0}>
-                        Available: {balance.toFixed(4)} SOL
-                    </GlowText>
+                    {stakeAmount > inGameBalance && inGameBalance > 0 && (
+                        <GlowText color={Colors.danger} size="xs" glow={0} style={{ marginTop: Spacing.xs }}>
+                            Exceeds in-game balance
+                        </GlowText>
+                    )}
+                    {inGameBalance <= 0 && (
+                        <GlowText color={Colors.danger} size="xs" glow={0} style={{ marginTop: Spacing.xs }}>
+                            No balance — top up your in-game wallet first
+                        </GlowText>
+                    )}
                 </NeonCard>
             </Animated.View>
 
@@ -308,29 +231,13 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
                                     onPress={() => setDifficulty(item.key)}
                                     style={[styles.diffBtn, selected ? styles.diffBtnActive : undefined]}
                                 >
-                                    <GlowText
-                                        color={selected ? Colors.textPrimary : Colors.textMuted}
-                                        size="xs"
-                                        glow={0}
-                                        align="center"
-                                    >
+                                    <GlowText color={selected ? Colors.textPrimary : Colors.textMuted} size="xs" glow={0} align="center">
                                         {item.stars}
                                     </GlowText>
-                                    <GlowText
-                                        color={selected ? Colors.textPrimary : Colors.textSecondary}
-                                        size="body"
-                                        weight="700"
-                                        glow={0}
-                                        align="center"
-                                    >
+                                    <GlowText color={selected ? Colors.textPrimary : Colors.textSecondary} size="body" weight="700" glow={0} align="center">
                                         {DIFFICULTY_LABELS[item.key]}
                                     </GlowText>
-                                    <GlowText
-                                        color={selected ? Colors.textSecondary : Colors.textMuted}
-                                        size="xs"
-                                        glow={0}
-                                        align="center"
-                                    >
+                                    <GlowText color={selected ? Colors.textSecondary : Colors.textMuted} size="xs" glow={0} align="center">
                                         {item.desc}
                                     </GlowText>
                                 </Pressable>
@@ -343,34 +250,34 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
             <Animated.View style={anim4}>
                 <NeonCard style={styles.section}>
                     <View style={styles.previewRow}>
-                        <GlowText color={Colors.textSecondary} size="body" glow={0}>
-                            Multiplier
-                        </GlowText>
-                        <GlowText color={Colors.textPrimary} size="xl" weight="700" glow={0}>
-                            {multiplier.toFixed(1)}x
-                        </GlowText>
+                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Multiplier</GlowText>
+                        <GlowText color={Colors.textPrimary} size="xl" weight="700" glow={0}>{multiplier.toFixed(1)}x</GlowText>
                     </View>
                     <View style={[styles.previewRow, styles.previewRowBorder]}>
-                        <GlowText color={Colors.textSecondary} size="body" glow={0}>
-                            Estimated Payout
-                        </GlowText>
-                        <GlowText color={Colors.success} size="xl" weight="700" glow={0}>
-                            {estimatedPayout} SOL
-                        </GlowText>
+                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Estimated Payout</GlowText>
+                        <GlowText color={Colors.success} size="xl" weight="700" glow={0}>{estimatedPayout} SOL</GlowText>
                     </View>
                 </NeonCard>
             </Animated.View>
 
             <Animated.View style={anim5}>
                 <NeonButton
-                    title={loading ? 'Opening Phantom...' : 'Start Game'}
+                    title="Start Game"
                     onPress={handleStart}
                     disabled={!canStart}
-                    loading={loading}
                     variant="primary"
                     size="lg"
                     style={styles.startBtn}
                 />
+                {inGameBalance <= 0 && (
+                    <NeonButton
+                        title="Top Up In-Game Wallet"
+                        onPress={() => navigation.navigate('InGameWallet')}
+                        variant="secondary"
+                        size="md"
+                        style={styles.topUpBtn}
+                    />
+                )}
                 <NeonButton
                     title="Back"
                     onPress={() => navigation.goBack()}
@@ -386,6 +293,16 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: Colors.bg },
     content: { paddingHorizontal: Spacing.lg },
+    balanceStrip: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: Spacing.md,
+        marginBottom: -Spacing.xs,
+        paddingHorizontal: Spacing.xs,
+    },
+    balanceRight: { alignItems: 'flex-end' },
+    balanceUsd: { marginTop: 1 },
     section: { marginTop: Spacing.md },
     sectionLabel: { letterSpacing: 1.5, marginBottom: Spacing.xs },
     input: {
@@ -403,6 +320,7 @@ const styles = StyleSheet.create({
     previewRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Spacing.xs },
     previewRowBorder: { marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.border },
     startBtn: { marginTop: Spacing.lg },
+    topUpBtn: { marginTop: Spacing.sm + 4 },
     backBtn: { marginTop: Spacing.sm + 4 },
     diffGrid: { flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.sm, gap: Spacing.sm },
     diffBtn: {

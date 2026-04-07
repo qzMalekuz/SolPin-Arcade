@@ -14,6 +14,7 @@ import { SetupScreen } from './src/screens/SetupScreen';
 import { GameScreen } from './src/screens/GameScreen';
 import { ResultScreen } from './src/screens/ResultScreen';
 import { LeaderboardScreen } from './src/screens/LeaderboardScreen';
+import { InGameWalletScreen } from './src/screens/InGameWalletScreen';
 import { initAudio, unloadAllSounds } from './src/utils/audio';
 import { Colors } from './src/theme';
 
@@ -22,6 +23,7 @@ import { Colors } from './src/theme';
 // -------------------------------------------
 export type RootStackParamList = {
   Wallet: undefined;
+  InGameWallet: undefined;
   Setup: undefined;
   Game: undefined;
   Result: undefined;
@@ -107,6 +109,7 @@ export default function App() {
           }}
         >
           <Stack.Screen name="Wallet" component={WalletScreen} />
+          <Stack.Screen name="InGameWallet" component={InGameWalletScreen} />
           <Stack.Screen name="Setup" component={SetupScreen} />
           <Stack.Screen
             name="Game"
