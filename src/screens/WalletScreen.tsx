@@ -30,6 +30,7 @@ import {
 } from '../solana/phantom';
 import { getSolanaNetworkLabel } from '../solana/connection';
 import { useGameStore, type GameStatus } from '../store/gameStore';
+import { useNetworkStore, type SupportedSolanaCluster } from '../store/networkStore';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Wallet'>;
@@ -67,6 +68,12 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     const { duration, setStatus, setTimeRemaining, setTxSignature, setTutorialMode } = useGameStore();
     const { hydrate, hydrated, getBalanceSol, fetchSolPrice, solPrice } = useInGameWalletStore();
     const {
+        cluster,
+        hydrated: networkHydrated,
+        hydrate: hydrateNetwork,
+        setCluster,
+    } = useNetworkStore();
+    const {
         publicKey,
         connected,
         balance,
@@ -87,8 +94,9 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
 
     useEffect(() => {
         if (!hydrated) void hydrate();
+        if (!networkHydrated) void hydrateNetwork();
         void fetchSolPrice();
-    }, []);
+    }, [fetchSolPrice, hydrate, hydrateNetwork, hydrated, networkHydrated]);
 
     const headerAnim = useFadeInDown(100);
     const cardAnim = useFadeInDown(250);
@@ -135,9 +143,14 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     }, [clearConnectTimeout, completeConnection, failConnection, refreshBalance]);
 
     useEffect(() => {
+        if (!networkHydrated) {
+            return;
+        }
+
         hydratePhantomSession()
             .then((restoredSession) => {
                 if (!restoredSession) {
+                    disconnect();
                     return;
                 }
 
@@ -149,7 +162,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
             .catch(() => {
                 void clearPhantomSession();
             });
-    }, [refreshBalance, restoreConnection]);
+    }, [cluster, disconnect, networkHydrated, refreshBalance, restoreConnection]);
 
     useEffect(() => {
         const handleInitialUrl = async () => {
@@ -295,6 +308,22 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         navigation.navigate('Game');
     }, [navigation, setStatus, setTimeRemaining, setTutorialMode]);
 
+    const handleClusterChange = useCallback(async (nextCluster: SupportedSolanaCluster) => {
+        if (nextCluster === cluster || isBusy) {
+            return;
+        }
+
+        clearConnectTimeout();
+        setPendingAction(null);
+
+        if (connected) {
+            await clearPhantomSession();
+            disconnect();
+        }
+
+        await setCluster(nextCluster);
+    }, [clearConnectTimeout, cluster, connected, disconnect, isBusy, setCluster]);
+
     return (
         <View
             style={[
@@ -338,7 +367,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                     ) : (
                         <>
                             <GlowText color={Colors.textSecondary} size="body" align="center" glow={0}>
-                                Connect Phantom on Solana mainnet to play.
+                                Connect Phantom on Solana {cluster === 'devnet' ? 'devnet' : 'mainnet'} to play.
                             </GlowText>
                             <GlowText color={Colors.textMuted} size="xs" align="center" glow={0} style={styles.networkBadge}>
                                 Network: {getSolanaNetworkLabel()}
@@ -350,6 +379,33 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                             ) : null}
                         </>
                     )}
+                </NeonCard>
+            </Animated.View>
+
+            <Animated.View style={cardAnim}>
+                <NeonCard style={styles.networkCard}>
+                    <GlowText color={Colors.textSecondary} size="xs" weight="600" glow={0} style={styles.networkTitle}>
+                        TRANSACTION NETWORK
+                    </GlowText>
+                    <View style={styles.networkToggleRow}>
+                        {(['devnet', 'mainnet-beta'] as const).map((option) => {
+                            const selected = cluster === option;
+                            return (
+                                <NeonButton
+                                    key={option}
+                                    title={option === 'devnet' ? 'Devnet' : 'Mainnet'}
+                                    onPress={() => void handleClusterChange(option)}
+                                    variant={selected ? 'primary' : 'secondary'}
+                                    size="sm"
+                                    disabled={isBusy}
+                                    style={styles.networkToggleBtn}
+                                />
+                            );
+                        })}
+                    </View>
+                    <GlowText color={Colors.textMuted} size="xs" align="center" glow={0}>
+                        Devnet is recommended for transaction testing. Changing network clears the current Phantom session.
+                    </GlowText>
                 </NeonCard>
             </Animated.View>
 
@@ -431,7 +487,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
 
             <Animated.View style={footerAnim}>
                 <GlowText color={Colors.textMuted} size="xs" align="center" glow={0} style={styles.footer}>
-                    Skill-based arcade staking • Mainnet • Phantom Mobile
+                    Skill-based arcade staking • {getSolanaNetworkLabel()} • Phantom Mobile
                 </GlowText>
             </Animated.View>
         </View>
@@ -459,6 +515,10 @@ const styles = StyleSheet.create({
         borderTopColor: Colors.border,
     },
     networkBadge: { marginTop: Spacing.sm, letterSpacing: 1 },
+    networkCard: { marginBottom: Spacing.md, gap: Spacing.sm },
+    networkTitle: { textAlign: 'center', letterSpacing: 1.2 },
+    networkToggleRow: { flexDirection: 'row', gap: Spacing.sm },
+    networkToggleBtn: { flex: 1 },
     errorText: { marginTop: Spacing.md, lineHeight: 18 },
     actions: { gap: Spacing.sm + 4 },
     tutorialBtn: { marginTop: Spacing.xs },

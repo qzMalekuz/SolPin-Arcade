@@ -4,13 +4,12 @@ import bs58 from 'bs58';
 import { Buffer } from 'buffer';
 import { PublicKey, Transaction } from '@solana/web3.js';
 import nacl from 'tweetnacl';
+import { getSolanaCluster } from './connection';
 
 const PHANTOM_BASE = 'https://phantom.app/ul/';
 const PHANTOM_CONNECT = 'v1/connect';
 const PHANTOM_SIGN_AND_SEND = 'v1/signAndSendTransaction';
 const PHANTOM_DISCONNECT = 'v1/disconnect';
-const PHANTOM_SESSION_STORAGE_KEY = 'phantom-session-mainnet';
-const PHANTOM_CLUSTER = 'mainnet-beta';
 
 type StoredPhantomSession = {
     dappPublicKey: string;
@@ -45,6 +44,9 @@ const getQueryParams = (url: string): Record<string, string> => {
 let dappKeyPair: nacl.BoxKeyPair | null = null;
 let phantomEncryptionPublicKey: Uint8Array | null = null;
 
+const getPhantomSessionStorageKey = (): string =>
+    `phantom-session-${getSolanaCluster()}`;
+
 const setDappKeyPair = (publicKey: string, secretKey: string): void => {
     dappKeyPair = {
         publicKey: bs58.decode(publicKey),
@@ -63,17 +65,17 @@ const getDappKeyPair = (): nacl.BoxKeyPair => {
 const saveSession = async (
     session: StoredPhantomSession,
 ): Promise<void> => {
-    await AsyncStorage.setItem(PHANTOM_SESSION_STORAGE_KEY, JSON.stringify(session));
+    await AsyncStorage.setItem(getPhantomSessionStorageKey(), JSON.stringify(session));
 };
 
 export const clearPhantomSession = async (): Promise<void> => {
     dappKeyPair = null;
     phantomEncryptionPublicKey = null;
-    await AsyncStorage.removeItem(PHANTOM_SESSION_STORAGE_KEY);
+    await AsyncStorage.removeItem(getPhantomSessionStorageKey());
 };
 
 export const hydratePhantomSession = async (): Promise<PhantomSessionState | null> => {
-    const storedValue = await AsyncStorage.getItem(PHANTOM_SESSION_STORAGE_KEY);
+    const storedValue = await AsyncStorage.getItem(getPhantomSessionStorageKey());
     if (!storedValue) {
         return null;
     }
@@ -159,6 +161,7 @@ export const getPhantomErrorMessage = (
 };
 
 export const buildConnectUrl = async (): Promise<string> => {
+    const cluster = getSolanaCluster();
     const keyPair = getDappKeyPair();
     await saveSession({
         dappPublicKey: bs58.encode(keyPair.publicKey),
@@ -170,7 +173,7 @@ export const buildConnectUrl = async (): Promise<string> => {
 
     const params = new URLSearchParams({
         dapp_encryption_public_key: bs58.encode(keyPair.publicKey),
-        cluster: PHANTOM_CLUSTER,
+        cluster,
         app_url: 'https://solpin.arcade',
         redirect_link: getRedirectUri('onConnect'),
     });

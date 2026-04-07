@@ -5,7 +5,7 @@ import {
     SystemProgram,
     LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
-import { getConnection, getLatestBlockhashWithFallback } from './connection';
+import { getConnection, getLatestBlockhashWithFallback, getSolanaCluster } from './connection';
 import { Difficulty, Duration } from '../theme';
 
 // -----------------------------------------------------------------
@@ -23,6 +23,10 @@ export const REWARD_POOL_PUBKEY = new PublicKey(
     'GwL1S3yVCf1T6iNxjReqTfPLzYfG2unXxPZdp5bDjwkP'
 );
 
+const getRecipientPubkey = (payer: PublicKey): PublicKey => (
+    getSolanaCluster() === 'devnet' ? payer : REWARD_POOL_PUBKEY
+);
+
 /**
  * Build an in-game wallet top-up: transfer SOL from player to the parent/treasury wallet.
  * User signs this once; backend (or on-chain verification) credits the in-game balance.
@@ -35,7 +39,7 @@ export const buildTopUpTransaction = async (
     tx.add(
         SystemProgram.transfer({
             fromPubkey: payer,
-            toPubkey: REWARD_POOL_PUBKEY,
+            toPubkey: getRecipientPubkey(payer),
             lamports: Math.round(amountSol * LAMPORTS_PER_SOL),
         })
     );
@@ -63,7 +67,7 @@ export const buildStakeTransaction = async (
     tx.add(
         SystemProgram.transfer({
             fromPubkey: payer,
-            toPubkey: REWARD_POOL_PUBKEY,
+            toPubkey: getRecipientPubkey(payer),
             lamports: Math.round(amount * LAMPORTS_PER_SOL),
         })
     );
