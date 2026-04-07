@@ -1,5 +1,4 @@
 import {
-    Connection,
     PublicKey,
     Transaction,
     SystemProgram,
@@ -20,12 +19,23 @@ export const PROGRAM_ID = new PublicKey(
 
 /** Placeholder reward pool wallet (would be a PDA in production) */
 export const REWARD_POOL_PUBKEY = new PublicKey(
-    'GwL1S3yVCf1T6iNxjReqTfPLzYfG2unXxPZdp5bDjwkP'
+    'D2hNpkGAJSJHEYw2Zs3DCH9hJbJNGvzotEx2KhnZNyR9'
 );
 
-const getRecipientPubkey = (payer: PublicKey): PublicKey => (
-    getSolanaCluster() === 'devnet' ? payer : REWARD_POOL_PUBKEY
-);
+export const validateTreasuryTopUpTarget = async (): Promise<void> => {
+    if (getSolanaCluster() !== 'devnet') {
+        return;
+    }
+
+    const accountInfo = await getConnection().getAccountInfo(REWARD_POOL_PUBKEY, 'confirmed');
+    if (accountInfo) {
+        return;
+    }
+
+    throw new Error(
+        `The game treasury wallet ${REWARD_POOL_PUBKEY.toBase58()} is not activated on Solana Devnet yet. Open that wallet in Phantom on Devnet and airdrop some devnet SOL to it once, then try again.`,
+    );
+};
 
 /**
  * Build an in-game wallet top-up: transfer SOL from player to the parent/treasury wallet.
@@ -35,11 +45,12 @@ export const buildTopUpTransaction = async (
     payer: PublicKey,
     amountSol: number,
 ): Promise<Transaction> => {
+    await validateTreasuryTopUpTarget();
     const tx = new Transaction();
     tx.add(
         SystemProgram.transfer({
             fromPubkey: payer,
-            toPubkey: getRecipientPubkey(payer),
+            toPubkey: REWARD_POOL_PUBKEY,
             lamports: Math.round(amountSol * LAMPORTS_PER_SOL),
         })
     );
@@ -67,7 +78,7 @@ export const buildStakeTransaction = async (
     tx.add(
         SystemProgram.transfer({
             fromPubkey: payer,
-            toPubkey: getRecipientPubkey(payer),
+            toPubkey: REWARD_POOL_PUBKEY,
             lamports: Math.round(amount * LAMPORTS_PER_SOL),
         })
     );
@@ -99,9 +110,8 @@ export const buildClaimTransaction = async (
     const connection = getConnection();
     const tx = new Transaction();
 
-    // In production this would be:
-    //   program.methods.claimReward(payload).accounts({...}).instruction()
-    // For demo, we just create a zero-transfer memo marker
+    // A treasury payout cannot be signed from the client with only the treasury public key.
+    // This remains a placeholder until rewards are sent by your backend or Anchor program.
     tx.add(
         SystemProgram.transfer({
             fromPubkey: payer,

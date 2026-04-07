@@ -187,17 +187,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                 preflightCommitment: 'confirmed',
             });
 
-            const latestBlockhash = result.transaction.recentBlockhash;
-            const lastValidBlockHeight = result.transaction.lastValidBlockHeight;
-            if (!latestBlockhash || lastValidBlockHeight == null) {
-                throw new Error('Signed transaction is missing a recent blockhash.');
-            }
-
-            await connection.confirmTransaction({
-                signature,
-                blockhash: latestBlockhash,
-                lastValidBlockHeight,
-            }, 'confirmed');
+            await connection.confirmTransaction(signature, 'confirmed');
 
             const credited = await topUp(pending.amountSol, pending.amountUsd, signature);
             clearPendingTopUp();
