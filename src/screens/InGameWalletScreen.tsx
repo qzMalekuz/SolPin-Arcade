@@ -37,6 +37,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'InGameWallet'>;
 
 const MIN_TOPUP_USD = 10;
 const MIN_WITHDRAW_USD = 50;
+const FALLBACK_MIN_TOPUP_SOL = 0.1;
+const FALLBACK_MIN_WITHDRAW_SOL = 0.5;
 
 const useFadeIn = (delay = 0) => {
     const opacity = useRef(new Animated.Value(0)).current;
@@ -128,9 +130,9 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
     const { publicKey, session, connected } = useWalletStore();
 
     const [tab, setTab] = useState<'balance' | 'history'>('balance');
-    const [topUpUsd, setTopUpUsd] = useState('');
+    const [topUpSol, setTopUpSol] = useState('');
     const [topUpInput, setTopUpInput] = useState('');
-    const [withdrawUsd, setWithdrawUsd] = useState('');
+    const [withdrawSol, setWithdrawSol] = useState('');
     const [withdrawInput, setWithdrawInput] = useState('');
     const [loadingTopUp, setLoadingTopUp] = useState(false);
     const [loadingPrice, setLoadingPrice] = useState(false);
@@ -229,17 +231,14 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
             return;
         }
 
-        const usdVal = parseFloat(topUpUsd);
-        if (isNaN(usdVal) || usdVal < MIN_TOPUP_USD) {
-            Alert.alert('Minimum Top-Up', `Minimum top-up is $${MIN_TOPUP_USD}.`);
-            return;
-        }
-        if (solPrice <= 0) {
-            Alert.alert('Price Unavailable', 'Could not fetch SOL price. Try again.');
+        const solVal = parseFloat(topUpSol);
+        const minSol = minTopUpSol ?? FALLBACK_MIN_TOPUP_SOL;
+        if (isNaN(solVal) || solVal < minSol) {
+            Alert.alert('Minimum Top-Up', `Minimum top-up is ${minSol.toFixed(4)} SOL.`);
             return;
         }
 
-        const amountSol = usdToSol(usdVal, solPrice);
+        const amountSol = solVal;
 
         setLoadingTopUp(true);
         try {
@@ -251,9 +250,10 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                 return;
             }
 
+            const amountUsd = solPrice > 0 ? amountSol * solPrice : 0;
             const tx = await buildTopUpTransaction(publicKey, amountSol);
             const signUrl = buildSignTransactionUrl(tx, session, 'onTopUp');
-            setPendingTopUp(amountSol, usdVal);
+            setPendingTopUp(amountSol, amountUsd);
 
             topUpTimeoutRef.current = setTimeout(() => {
                 setLoadingTopUp(false);
@@ -268,7 +268,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
             Alert.alert('Top-Up Failed', err?.message ?? 'Something went wrong.');
         }
     }, [
-        connected, publicKey, session, topUpUsd, solPrice,
+        connected, publicKey, session, topUpSol, solPrice, minTopUpSol,
         navigation, setPendingTopUp, clearPendingTopUp,
     ]);
 
@@ -278,34 +278,32 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
             return;
         }
 
-        const usdVal = parseFloat(withdrawUsd);
-        if (isNaN(usdVal) || usdVal < MIN_WITHDRAW_USD) {
-            Alert.alert('Minimum Withdrawal', `Minimum withdrawal is $${MIN_WITHDRAW_USD}.`);
-            return;
-        }
-        if (solPrice <= 0) {
-            Alert.alert('Price Unavailable', 'Could not fetch SOL price. Try again.');
+        const solVal = parseFloat(withdrawSol);
+        const minSol = minWithdrawSol ?? FALLBACK_MIN_WITHDRAW_SOL;
+        if (isNaN(solVal) || solVal < minSol) {
+            Alert.alert('Minimum Withdrawal', `Minimum withdrawal is ${minSol.toFixed(4)} SOL.`);
             return;
         }
 
-        const amountSol = usdToSol(usdVal, solPrice);
+        const amountSol = solVal;
         if (amountSol > balanceSol) {
             Alert.alert('Insufficient Balance', 'Your in-game wallet does not have enough SOL.');
             return;
         }
 
+        const amountUsd = solPrice > 0 ? amountSol * solPrice : 0;
         Alert.alert(
             'Confirm Withdrawal',
-            `Withdraw ${amountSol.toFixed(4)} SOL ($${usdVal.toFixed(2)}) to your Phantom wallet?\n\nProcessing may take a few minutes.`,
+            `Withdraw ${amountSol.toFixed(4)} SOL to your Phantom wallet?\n\nProcessing may take a few minutes.`,
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
                     text: 'Withdraw',
                     style: 'default',
                     onPress: () => {
-                        const ok = requestWithdrawal(amountSol, usdVal);
+                        const ok = requestWithdrawal(amountSol, amountUsd);
                         if (ok) {
-                            setWithdrawUsd('');
+                            setWithdrawSol('');
                             setWithdrawInput('');
                             Alert.alert('Withdrawal Queued', 'Your withdrawal has been queued and will be sent to your Phantom wallet shortly.');
                         } else {
@@ -315,7 +313,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                 },
             ],
         );
-    }, [connected, withdrawUsd, solPrice, balanceSol, requestWithdrawal]);
+    }, [connected, withdrawSol, solPrice, minWithdrawSol, balanceSol, requestWithdrawal]);
 
     return (
         <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -392,38 +390,33 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                                 TOP-UP
                             </GlowText>
                             <GlowText color={Colors.textMuted} size="xs" glow={0} style={styles.hint}>
-                                Minimum ${MIN_TOPUP_USD} · Funds transfer from Phantom to game wallet
+                                Min {(minTopUpSol ?? FALLBACK_MIN_TOPUP_SOL).toFixed(4)} SOL · Funds transfer from Phantom to game wallet
                             </GlowText>
                             <View style={styles.inputRow}>
-                                <GlowText color={Colors.textSecondary} size="body" glow={0} style={styles.currencySign}>$</GlowText>
                                 <TextInput
                                     style={styles.input}
                                     value={topUpInput}
                                     onChangeText={(t) => {
                                         setTopUpInput(t);
                                         const v = parseFloat(t);
-                                        if (!isNaN(v)) setTopUpUsd(t);
+                                        if (!isNaN(v)) setTopUpSol(t);
                                     }}
                                     onBlur={() => {
                                         const v = parseFloat(topUpInput);
                                         if (!isNaN(v)) {
-                                            setTopUpUsd(v.toString());
+                                            setTopUpSol(v.toString());
                                             setTopUpInput(v.toString());
                                         }
                                     }}
                                     keyboardType="decimal-pad"
-                                    placeholder="10.00"
+                                    placeholder={(minTopUpSol ?? FALLBACK_MIN_TOPUP_SOL).toFixed(4)}
                                     placeholderTextColor={Colors.textMuted}
                                 />
+                                <GlowText color={Colors.textSecondary} size="body" glow={0} style={styles.currencySign}>SOL</GlowText>
                             </View>
-                            {solPrice > 0 && topUpUsd !== '' && !isNaN(parseFloat(topUpUsd)) && (
+                            {solPrice > 0 && topUpSol !== '' && !isNaN(parseFloat(topUpSol)) && (
                                 <GlowText color={Colors.textMuted} size="xs" glow={0} style={{ marginTop: Spacing.xs }}>
-                                    ≈ {usdToSol(parseFloat(topUpUsd), solPrice).toFixed(4)} SOL
-                                </GlowText>
-                            )}
-                            {minTopUpSol !== null && (
-                                <GlowText color={Colors.textMuted} size="xs" glow={0} style={{ marginTop: Spacing.xs }}>
-                                    Min: {minTopUpSol.toFixed(4)} SOL
+                                    ≈ ${(parseFloat(topUpSol) * solPrice).toFixed(2)} USD
                                 </GlowText>
                             )}
                             <NeonButton
@@ -448,38 +441,38 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                                 WITHDRAW
                             </GlowText>
                             <GlowText color={Colors.textMuted} size="xs" glow={0} style={styles.hint}>
-                                Minimum ${MIN_WITHDRAW_USD} · Sent to your connected Phantom wallet
+                                Min {(minWithdrawSol ?? FALLBACK_MIN_WITHDRAW_SOL).toFixed(4)} SOL · Sent to your connected Phantom wallet
                             </GlowText>
                             <View style={styles.inputRow}>
-                                <GlowText color={Colors.textSecondary} size="body" glow={0} style={styles.currencySign}>$</GlowText>
                                 <TextInput
                                     style={styles.input}
                                     value={withdrawInput}
                                     onChangeText={(t) => {
                                         setWithdrawInput(t);
                                         const v = parseFloat(t);
-                                        if (!isNaN(v)) setWithdrawUsd(t);
+                                        if (!isNaN(v)) setWithdrawSol(t);
                                     }}
                                     onBlur={() => {
                                         const v = parseFloat(withdrawInput);
                                         if (!isNaN(v)) {
-                                            setWithdrawUsd(v.toString());
+                                            setWithdrawSol(v.toString());
                                             setWithdrawInput(v.toString());
                                         }
                                     }}
                                     keyboardType="decimal-pad"
-                                    placeholder="50.00"
+                                    placeholder={(minWithdrawSol ?? FALLBACK_MIN_WITHDRAW_SOL).toFixed(4)}
                                     placeholderTextColor={Colors.textMuted}
                                 />
+                                <GlowText color={Colors.textSecondary} size="body" glow={0} style={styles.currencySign}>SOL</GlowText>
                             </View>
-                            {solPrice > 0 && withdrawUsd !== '' && !isNaN(parseFloat(withdrawUsd)) && (
+                            {solPrice > 0 && withdrawSol !== '' && !isNaN(parseFloat(withdrawSol)) && (
                                 <GlowText color={Colors.textMuted} size="xs" glow={0} style={{ marginTop: Spacing.xs }}>
-                                    ≈ {usdToSol(parseFloat(withdrawUsd), solPrice).toFixed(4)} SOL
+                                    ≈ ${(parseFloat(withdrawSol) * solPrice).toFixed(2)} USD
                                 </GlowText>
                             )}
                             {minWithdrawSol !== null && (
                                 <GlowText color={Colors.textMuted} size="xs" glow={0} style={{ marginTop: Spacing.xs }}>
-                                    Min: {minWithdrawSol.toFixed(4)} SOL · Available: {balanceSol.toFixed(4)} SOL
+                                    Available: {balanceSol.toFixed(4)} SOL
                                 </GlowText>
                             )}
                             <NeonButton
@@ -545,7 +538,7 @@ const styles = StyleSheet.create({
     sectionLabel: { letterSpacing: 1.5, marginBottom: Spacing.xs },
     hint: { marginBottom: Spacing.sm, lineHeight: 16 },
     inputRow: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: Colors.border, marginBottom: Spacing.xs },
-    currencySign: { marginRight: Spacing.xs, paddingBottom: Spacing.xs },
+    currencySign: { marginLeft: Spacing.xs, paddingBottom: Spacing.xs },
     input: {
         flex: 1,
         color: Colors.textPrimary,
@@ -553,6 +546,6 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         paddingVertical: Spacing.sm,
     },
-    actionBtn: { marginTop: Spacing.md },
+    actionBtn: { marginTop: Spacing.lg },
     divider: { height: 1, backgroundColor: Colors.border, marginHorizontal: -Spacing.xs },
 });

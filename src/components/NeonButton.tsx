@@ -29,6 +29,18 @@ const VARIANT_COLORS = {
     danger: Colors.danger,
 };
 
+const VARIANT_BG = {
+    primary: 'rgba(255, 255, 255, 0.11)',
+    secondary: 'rgba(255, 255, 255, 0.03)',
+    danger: 'rgba(255, 80, 80, 0.08)',
+};
+
+const VARIANT_BORDER = {
+    primary: 'rgba(255, 255, 255, 0.35)',
+    secondary: Colors.borderLight,
+    danger: 'rgba(255, 80, 80, 0.4)',
+};
+
 export const NeonButton: React.FC<NeonButtonProps> = React.memo(({
     title,
     onPress,
@@ -81,7 +93,8 @@ export const NeonButton: React.FC<NeonButtonProps> = React.memo(({
                     {
                         height: sizeConfig.height,
                         paddingHorizontal: sizeConfig.paddingHorizontal,
-                        borderColor: disabled ? Colors.border : Colors.borderLight,
+                        borderColor: disabled ? Colors.border : VARIANT_BORDER[variant],
+                        backgroundColor: VARIANT_BG[variant],
                         opacity: disabled ? 0.4 : 1,
                     },
                     style,
@@ -116,7 +129,6 @@ const styles = StyleSheet.create({
         borderRadius: 18,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.03)',
     },
     text: {
         fontWeight: '600',

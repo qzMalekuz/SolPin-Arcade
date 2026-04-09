@@ -6,6 +6,8 @@ import {
     Alert,
     Animated,
     Easing,
+    Pressable,
+    ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -438,6 +440,8 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                 </Animated.View>
             )}
 
+            <View style={styles.spacer} />
+
             <Animated.View style={[styles.actions, actionsAnim]}>
                 {connected ? (
                     <>
@@ -454,34 +458,36 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                             variant="secondary"
                             size="md"
                             disabled={isBusy}
+                            style={styles.secondaryBtn}
                         />
-                        <NeonButton
-                            title={pendingAction === 'disconnect' ? 'Disconnecting...' : 'Disconnect'}
-                            onPress={handleDisconnect}
-                            variant="danger"
-                            size="sm"
-                            loading={pendingAction === 'disconnect'}
-                            disabled={isBusy}
-                        />
+                        <Pressable onPress={handleDisconnect} disabled={isBusy} style={styles.disconnectLink}>
+                            {pendingAction === 'disconnect' ? (
+                                <ActivityIndicator color={Colors.danger} size="small" />
+                            ) : (
+                                <GlowText color={isBusy ? Colors.textMuted : Colors.danger} size="sm" align="center" glow={0}>
+                                    Disconnect
+                                </GlowText>
+                            )}
+                        </Pressable>
                     </>
                 ) : (
-                    <NeonButton
-                        title={pendingAction === 'connect' ? 'Opening Phantom...' : 'Connect Wallet'}
-                        onPress={handleConnect}
-                        variant="primary"
-                        size="lg"
-                        loading={pendingAction === 'connect'}
-                        disabled={isBusy}
-                    />
-                )}
-                {!connected && (
-                    <NeonButton
-                        title="Tutorial Mode"
-                        onPress={handleTutorial}
-                        variant="secondary"
-                        size="sm"
-                        style={styles.tutorialBtn}
-                    />
+                    <>
+                        <NeonButton
+                            title={pendingAction === 'connect' ? 'Opening Phantom...' : 'Connect Wallet'}
+                            onPress={handleConnect}
+                            variant="primary"
+                            size="lg"
+                            loading={pendingAction === 'connect'}
+                            disabled={isBusy}
+                        />
+                        <NeonButton
+                            title="Tutorial Mode"
+                            onPress={handleTutorial}
+                            variant="secondary"
+                            size="md"
+                            style={styles.secondaryBtn}
+                        />
+                    </>
                 )}
             </Animated.View>
 
@@ -499,7 +505,6 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: Colors.bg,
         paddingHorizontal: Spacing.lg,
-        justifyContent: 'center',
     },
     header: { marginBottom: Spacing.xl },
     subtitle: { marginTop: -2, letterSpacing: 8 },
@@ -520,8 +525,10 @@ const styles = StyleSheet.create({
     networkToggleRow: { flexDirection: 'row', gap: Spacing.sm },
     networkToggleBtn: { flex: 1 },
     errorText: { marginTop: Spacing.md, lineHeight: 18 },
-    actions: { gap: Spacing.sm + 4 },
-    tutorialBtn: { marginTop: Spacing.xs },
+    spacer: { flex: 1 },
+    actions: {},
+    secondaryBtn: { marginTop: Spacing.md },
+    disconnectLink: { marginTop: Spacing.md, paddingVertical: Spacing.sm, alignItems: 'center' },
     footer: { marginTop: Spacing.xl },
     igwCard: { marginBottom: Spacing.md, marginTop: Spacing.sm },
     igwRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

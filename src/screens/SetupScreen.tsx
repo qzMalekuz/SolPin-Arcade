@@ -282,7 +282,7 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
                     title="Back"
                     onPress={() => navigation.goBack()}
                     variant="secondary"
-                    size="sm"
+                    size="md"
                     style={styles.backBtn}
                 />
             </Animated.View>
@@ -320,8 +320,8 @@ const styles = StyleSheet.create({
     previewRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Spacing.xs },
     previewRowBorder: { marginTop: Spacing.sm, paddingTop: Spacing.sm, borderTopWidth: 1, borderTopColor: Colors.border },
     startBtn: { marginTop: Spacing.lg },
-    topUpBtn: { marginTop: Spacing.sm + 4 },
-    backBtn: { marginTop: Spacing.sm + 4 },
+    topUpBtn: { marginTop: Spacing.md },
+    backBtn: { marginTop: Spacing.md },
     diffGrid: { flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.sm, gap: Spacing.sm },
     diffBtn: {
         flex: 1,
