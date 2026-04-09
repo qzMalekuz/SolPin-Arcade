@@ -3,7 +3,6 @@ import {
     View,
     StyleSheet,
     StatusBar,
-    Alert,
     BackHandler,
     Platform,
     Animated,
@@ -17,6 +16,7 @@ import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, Animations } from '../theme';
 import { GlowText } from '../components/GlowText';
 import { NeonButton } from '../components/NeonButton';
+import { useAppModal } from '../components/AppModal';
 import { useGameStore } from '../store/gameStore';
 import { generatePinballHTML } from '../game/PinballGame';
 import type { RootStackParamList } from '../../App';
@@ -25,6 +25,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
 export const GameScreen: React.FC<Props> = ({ navigation }) => {
     const { duration, difficulty, stakeAmount, multiplier, tutorialMode, setScore, setStatus } = useGameStore();
+    const { show: showModal } = useAppModal();
 
     const webviewRef = useRef<WebView>(null);
     const [score, setLocalScore] = useState(0);
@@ -109,10 +110,15 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
             navigation.replace('Result');
             return;
         }
-        Alert.alert('Quit Game', 'You will lose your stake.', [
-            { text: 'Continue', style: 'cancel', onPress: handleResume },
-            { text: 'Quit', style: 'destructive', onPress: () => { setStatus('lost'); setScore(score); navigation.replace('Result'); } },
-        ]);
+        showModal({
+            title: 'Quit Game',
+            message: 'You will lose your stake.',
+            type: 'warning',
+            buttons: [
+                { text: 'Continue', style: 'cancel', onPress: handleResume },
+                { text: 'Quit', style: 'destructive', onPress: () => { setStatus('lost'); setScore(score); navigation.replace('Result'); } },
+            ],
+        });
     }, [handleResume, setStatus, setScore, score, navigation, tutorialMode]);
 
     const formatTime = useCallback((s: number) => {

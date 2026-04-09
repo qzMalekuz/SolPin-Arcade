@@ -17,6 +17,7 @@ import { LeaderboardScreen } from './src/screens/LeaderboardScreen';
 import { InGameWalletScreen } from './src/screens/InGameWalletScreen';
 import { initAudio, unloadAllSounds } from './src/utils/audio';
 import { Colors } from './src/theme';
+import { AppModalProvider } from './src/components/AppModal';
 
 // -------------------------------------------
 // Navigation param types
@@ -81,6 +82,7 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
+      <AppModalProvider>
       <NavigationContainer
         theme={{
           dark: true,
@@ -120,6 +122,7 @@ export default function App() {
           <Stack.Screen name="Leaderboard" component={LeaderboardScreen} />
         </Stack.Navigator>
       </NavigationContainer>
+      </AppModalProvider>
     </GestureHandlerRootView>
   );
 }

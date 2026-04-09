@@ -4,7 +4,7 @@ import {
     SystemProgram,
     LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
-import { getConnection, getLatestBlockhashWithFallback, getSolanaCluster } from './connection';
+import { getConnection, getLatestBlockhashWithFallback } from './connection';
 import { Difficulty, Duration } from '../theme';
 
 // -----------------------------------------------------------------
@@ -22,21 +22,6 @@ export const REWARD_POOL_PUBKEY = new PublicKey(
     'D2hNpkGAJSJHEYw2Zs3DCH9hJbJNGvzotEx2KhnZNyR9'
 );
 
-export const validateTreasuryTopUpTarget = async (): Promise<void> => {
-    if (getSolanaCluster() !== 'devnet') {
-        return;
-    }
-
-    const accountInfo = await getConnection().getAccountInfo(REWARD_POOL_PUBKEY, 'confirmed');
-    if (accountInfo) {
-        return;
-    }
-
-    throw new Error(
-        `The game treasury wallet ${REWARD_POOL_PUBKEY.toBase58()} is not activated on Solana Devnet yet. Open that wallet in Phantom on Devnet and airdrop some devnet SOL to it once, then try again.`,
-    );
-};
-
 /**
  * Build an in-game wallet top-up: transfer SOL from player to the parent/treasury wallet.
  * User signs this once; backend (or on-chain verification) credits the in-game balance.
@@ -45,7 +30,6 @@ export const buildTopUpTransaction = async (
     payer: PublicKey,
     amountSol: number,
 ): Promise<Transaction> => {
-    await validateTreasuryTopUpTarget();
     const tx = new Transaction();
     tx.add(
         SystemProgram.transfer({

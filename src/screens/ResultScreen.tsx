@@ -11,6 +11,9 @@ import { GlowText } from '../components/GlowText';
 import { AnimatedNumber } from '../components/AnimatedNumber';
 import { useGameStore } from '../store/gameStore';
 import { useInGameWalletStore } from '../store/inGameWalletStore';
+import { useLeaderboardStore } from '../store/leaderboardStore';
+import { useWalletStore } from '../store/walletStore';
+import { truncateAddress } from '../solana/phantom';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
@@ -34,6 +37,8 @@ export const ResultScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
     const { status, score, stakeAmount, multiplier, txSignature, duration, difficulty, tutorialMode, resetGame } = useGameStore();
     const { creditWin, recordLoss, solPrice } = useInGameWalletStore();
+    const { submit: submitLeaderboard } = useLeaderboardStore();
+    const { publicKey } = useWalletStore();
     const isWin = status === 'won';
 
     const headerAnim = useFadeInDown(100);
@@ -47,6 +52,15 @@ export const ResultScreen: React.FC<Props> = ({ navigation }) => {
             const payout = stakeAmount * multiplier;
             creditWin(payout, stakeAmount, solPrice);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
+            if (publicKey) {
+                void submitLeaderboard({
+                    wallet: truncateAddress(publicKey.toBase58(), 6),
+                    score,
+                    duration,
+                    difficulty,
+                    reward: payout,
+                });
+            }
         } else {
             recordLoss(stakeAmount, solPrice);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });

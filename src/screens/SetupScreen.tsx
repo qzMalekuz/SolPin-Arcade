@@ -3,7 +3,6 @@ import {
     View,
     StyleSheet,
     TextInput,
-    Alert,
     ScrollView,
     StatusBar,
     Animated,
@@ -25,6 +24,7 @@ import {
 import { NeonButton } from '../components/NeonButton';
 import { NeonCard } from '../components/NeonCard';
 import { GlowText } from '../components/GlowText';
+import { useAppModal } from '../components/AppModal';
 import { useGameStore } from '../store/gameStore';
 import { useInGameWalletStore } from '../store/inGameWalletStore';
 import type { RootStackParamList } from '../../App';
@@ -61,6 +61,7 @@ const useFadeInDown = (delay = 0) => {
 
 export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
+    const { alert: showAlert, show: showModal } = useAppModal();
     const {
         stakeAmount,
         duration,
@@ -93,24 +94,25 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
 
     const handleStart = useCallback(() => {
         if (stakeAmount < 0.001) {
-            Alert.alert('Minimum Stake', 'Minimum stake is 0.001 SOL.');
+            showAlert('Minimum Stake', 'Minimum stake is 0.001 SOL.');
             return;
         }
         if (stakeAmount > inGameBalance) {
-            Alert.alert(
-                'Insufficient Balance',
-                'Not enough in-game wallet balance.\nGo to your In-Game Wallet to top up.',
-                [
+            showModal({
+                title: 'Insufficient Balance',
+                message: 'Not enough in-game wallet balance.\nGo to your In-Game Wallet to top up.',
+                type: 'warning',
+                buttons: [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Top Up', onPress: () => navigation.navigate('InGameWallet') },
                 ],
-            );
+            });
             return;
         }
 
         const deducted = placeBet(stakeAmount);
         if (!deducted) {
-            Alert.alert('Insufficient Balance', 'Not enough in-game wallet balance.');
+            showAlert('Insufficient Balance', 'Not enough in-game wallet balance.');
             return;
         }
 

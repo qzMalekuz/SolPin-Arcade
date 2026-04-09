@@ -4,7 +4,6 @@ import {
     ScrollView,
     StyleSheet,
     StatusBar,
-    Alert,
     TextInput,
     Animated,
     Easing,
@@ -18,10 +17,11 @@ import { Colors, Spacing, FontSizes, Animations } from '../theme';
 import { NeonButton } from '../components/NeonButton';
 import { NeonCard } from '../components/NeonCard';
 import { GlowText } from '../components/GlowText';
+import { useAppModal } from '../components/AppModal';
 import { useInGameWalletStore, WalletTx } from '../store/inGameWalletStore';
 import { useWalletStore } from '../store/walletStore';
 import { getConnection } from '../solana/connection';
-import { getSolPrice, usdToSol } from '../solana/price';
+import { getSolPrice } from '../solana/price';
 import { buildTopUpTransaction } from '../solana/transactions';
 import {
     buildSignTransactionUrl,
@@ -35,8 +35,6 @@ import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'InGameWallet'>;
 
-const MIN_TOPUP_USD = 10;
-const MIN_WITHDRAW_USD = 50;
 const FALLBACK_MIN_TOPUP_SOL = 0.1;
 const FALLBACK_MIN_WITHDRAW_SOL = 0.5;
 
@@ -122,6 +120,7 @@ const txStyles = StyleSheet.create({
 
 export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
+    const { alert: showAlert, show: showModal } = useAppModal();
     const {
         hydrate, hydrated, fetchSolPrice, solPrice,
         getBalanceSol, transactions, pendingTopUp,
@@ -145,8 +144,8 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
 
     const balanceSol = getBalanceSol();
     const balanceUsd = solPrice > 0 ? balanceSol * solPrice : null;
-    const minTopUpSol = solPrice > 0 ? usdToSol(MIN_TOPUP_USD, solPrice) : null;
-    const minWithdrawSol = solPrice > 0 ? usdToSol(MIN_WITHDRAW_USD, solPrice) : null;
+    const minTopUpSol = FALLBACK_MIN_TOPUP_SOL;
+    const minWithdrawSol = FALLBACK_MIN_WITHDRAW_SOL;
 
     useEffect(() => {
         if (!hydrated) void hydrate();
@@ -164,7 +163,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
         if (phantomError) {
             setLoadingTopUp(false);
             clearPendingTopUp();
-            Alert.alert('Top-Up Failed', phantomError);
+            showAlert('Top-Up Failed', phantomError);
             return;
         }
 
@@ -172,7 +171,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
         if (!result?.transaction) {
             setLoadingTopUp(false);
             clearPendingTopUp();
-            Alert.alert('Top-Up Failed', 'Could not verify the signed transaction from Phantom.');
+            showAlert('Top-Up Failed', 'Could not verify the signed transaction from Phantom.');
             return;
         }
 
@@ -196,7 +195,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
             setLoadingTopUp(false);
 
             if (credited) {
-                Alert.alert(
+                showAlert(
                     'Top-Up Successful',
                     `+${pending.amountSol.toFixed(4)} SOL ($${pending.amountUsd.toFixed(2)}) added to your in-game wallet.`,
                 );
@@ -204,7 +203,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
         } catch (err: any) {
             setLoadingTopUp(false);
             clearPendingTopUp();
-            Alert.alert('Top-Up Failed', err?.message ?? 'Could not send the signed transaction to Solana.');
+            showAlert('Top-Up Failed', err?.message ?? 'Could not send the signed transaction to Solana.');
         }
     }, [clearPendingTopUp, topUp]);
 
@@ -227,14 +226,14 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
 
     const handleTopUp = useCallback(async () => {
         if (!connected || !publicKey || !session) {
-            Alert.alert('Wallet Required', 'Connect your Phantom wallet first.');
+            showAlert('Wallet Required', 'Connect your Phantom wallet first.');
             return;
         }
 
         const solVal = parseFloat(topUpSol);
-        const minSol = minTopUpSol ?? FALLBACK_MIN_TOPUP_SOL;
+        const minSol = minTopUpSol;
         if (isNaN(solVal) || solVal < minSol) {
-            Alert.alert('Minimum Top-Up', `Minimum top-up is ${minSol.toFixed(4)} SOL.`);
+            showAlert('Minimum Top-Up', `Minimum top-up is ${minSol.toFixed(1)} SOL.`);
             return;
         }
 
@@ -245,7 +244,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
             await hydratePhantomSession();
             if (!hasPhantomSession()) {
                 setLoadingTopUp(false);
-                Alert.alert('Reconnect Required', 'Your Phantom session expired. Reconnect your wallet.');
+                showAlert('Reconnect Required', 'Your Phantom session expired. Reconnect your wallet.');
                 navigation.navigate('Wallet');
                 return;
             }
@@ -258,14 +257,14 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
             topUpTimeoutRef.current = setTimeout(() => {
                 setLoadingTopUp(false);
                 clearPendingTopUp();
-                Alert.alert('Timeout', 'Phantom did not respond in time. Please try again.');
+                showAlert('Timeout', 'Phantom did not respond in time. Please try again.');
             }, 60000);
 
             await openPhantomLink(signUrl);
         } catch (err: any) {
             setLoadingTopUp(false);
             clearPendingTopUp();
-            Alert.alert('Top-Up Failed', err?.message ?? 'Something went wrong.');
+            showAlert('Top-Up Failed', err?.message ?? 'Something went wrong.');
         }
     }, [
         connected, publicKey, session, topUpSol, solPrice, minTopUpSol,
@@ -274,28 +273,29 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
 
     const handleWithdraw = useCallback(() => {
         if (!connected) {
-            Alert.alert('Wallet Required', 'Connect your Phantom wallet to withdraw.');
+            showAlert('Wallet Required', 'Connect your Phantom wallet to withdraw.');
             return;
         }
 
         const solVal = parseFloat(withdrawSol);
-        const minSol = minWithdrawSol ?? FALLBACK_MIN_WITHDRAW_SOL;
+        const minSol = minWithdrawSol;
         if (isNaN(solVal) || solVal < minSol) {
-            Alert.alert('Minimum Withdrawal', `Minimum withdrawal is ${minSol.toFixed(4)} SOL.`);
+            showAlert('Minimum Withdrawal', `Minimum withdrawal is ${minSol.toFixed(1)} SOL.`);
             return;
         }
 
         const amountSol = solVal;
         if (amountSol > balanceSol) {
-            Alert.alert('Insufficient Balance', 'Your in-game wallet does not have enough SOL.');
+            showAlert('Insufficient Balance', 'Your in-game wallet does not have enough SOL.');
             return;
         }
 
         const amountUsd = solPrice > 0 ? amountSol * solPrice : 0;
-        Alert.alert(
-            'Confirm Withdrawal',
-            `Withdraw ${amountSol.toFixed(4)} SOL to your Phantom wallet?\n\nProcessing may take a few minutes.`,
-            [
+        showModal({
+            title: 'Confirm Withdrawal',
+            message: `Withdraw ${amountSol.toFixed(4)} SOL to your Phantom wallet?\n\nProcessing may take a few minutes.`,
+            type: 'warning',
+            buttons: [
                 { text: 'Cancel', style: 'cancel' },
                 {
                     text: 'Withdraw',
@@ -305,14 +305,14 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                         if (ok) {
                             setWithdrawSol('');
                             setWithdrawInput('');
-                            Alert.alert('Withdrawal Queued', 'Your withdrawal has been queued and will be sent to your Phantom wallet shortly.');
+                            showAlert('Withdrawal Queued', 'Your withdrawal has been queued and will be sent to your Phantom wallet shortly.');
                         } else {
-                            Alert.alert('Failed', 'Could not process withdrawal. Check your balance.');
+                            showAlert('Failed', 'Could not process withdrawal. Check your balance.');
                         }
                     },
                 },
             ],
-        );
+        });
     }, [connected, withdrawSol, solPrice, minWithdrawSol, balanceSol, requestWithdrawal]);
 
     return (
@@ -390,7 +390,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                                 TOP-UP
                             </GlowText>
                             <GlowText color={Colors.textMuted} size="xs" glow={0} style={styles.hint}>
-                                Min {(minTopUpSol ?? FALLBACK_MIN_TOPUP_SOL).toFixed(4)} SOL · Funds transfer from Phantom to game wallet
+                                Min {(minTopUpSol).toFixed(1)} SOL · Funds transfer from Phantom to game wallet
                             </GlowText>
                             <View style={styles.inputRow}>
                                 <TextInput
@@ -409,7 +409,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                                         }
                                     }}
                                     keyboardType="decimal-pad"
-                                    placeholder={(minTopUpSol ?? FALLBACK_MIN_TOPUP_SOL).toFixed(4)}
+                                    placeholder={(minTopUpSol).toFixed(1)}
                                     placeholderTextColor={Colors.textMuted}
                                 />
                                 <GlowText color={Colors.textSecondary} size="body" glow={0} style={styles.currencySign}>SOL</GlowText>
@@ -441,7 +441,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                                 WITHDRAW
                             </GlowText>
                             <GlowText color={Colors.textMuted} size="xs" glow={0} style={styles.hint}>
-                                Min {(minWithdrawSol ?? FALLBACK_MIN_WITHDRAW_SOL).toFixed(4)} SOL · Sent to your connected Phantom wallet
+                                Min {(minWithdrawSol).toFixed(1)} SOL · Sent to your connected Phantom wallet
                             </GlowText>
                             <View style={styles.inputRow}>
                                 <TextInput
@@ -460,7 +460,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                                         }
                                     }}
                                     keyboardType="decimal-pad"
-                                    placeholder={(minWithdrawSol ?? FALLBACK_MIN_WITHDRAW_SOL).toFixed(4)}
+                                    placeholder={(minWithdrawSol).toFixed(1)}
                                     placeholderTextColor={Colors.textMuted}
                                 />
                                 <GlowText color={Colors.textSecondary} size="body" glow={0} style={styles.currencySign}>SOL</GlowText>
@@ -470,7 +470,7 @@ export const InGameWalletScreen: React.FC<Props> = ({ navigation }) => {
                                     ≈ ${(parseFloat(withdrawSol) * solPrice).toFixed(2)} USD
                                 </GlowText>
                             )}
-                            {minWithdrawSol !== null && (
+                            {(
                                 <GlowText color={Colors.textMuted} size="xs" glow={0} style={{ marginTop: Spacing.xs }}>
                                     Available: {balanceSol.toFixed(4)} SOL
                                 </GlowText>

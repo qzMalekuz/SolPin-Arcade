@@ -1,8 +1,7 @@
-import { Connection, clusterApiUrl } from '@solana/web3.js';
+import { Connection } from '@solana/web3.js';
 import {
     getSolanaNetworkLabel as getClusterLabel,
     type SupportedSolanaCluster,
-    useNetworkStore,
 } from '../store/networkStore';
 
 const CONNECTION_CONFIG = {
@@ -10,59 +9,43 @@ const CONNECTION_CONFIG = {
     confirmTransactionInitialTimeout: 30000,
 };
 
-const RPC_ENDPOINTS: Record<SupportedSolanaCluster, string[]> = {
-    'mainnet-beta': [
-        'https://api.mainnet-beta.solana.com',
-        'https://solana-mainnet.rpc.extrnode.com',
-        'https://rpc.ankr.com/solana',
-    ],
-    devnet: [
-        clusterApiUrl('devnet'),
-        'https://rpc.ankr.com/solana_devnet',
-    ],
-};
+const RPC_ENDPOINTS: string[] = [
+    'https://api.mainnet-beta.solana.com',
+    'https://solana-mainnet.rpc.extrnode.com',
+    'https://rpc.ankr.com/solana',
+];
 
-const connections = new Map<SupportedSolanaCluster, Connection>();
+let cachedConnection: Connection | null = null;
 
-export const getSolanaCluster = (): SupportedSolanaCluster =>
-    useNetworkStore.getState().cluster;
+export const getSolanaCluster = (): SupportedSolanaCluster => 'mainnet-beta';
 
-export const getRpcEndpoints = (
-    cluster: SupportedSolanaCluster = getSolanaCluster(),
-): string[] => RPC_ENDPOINTS[cluster];
+export const getRpcEndpoints = (): string[] => RPC_ENDPOINTS;
 
-export const SOLANA_RPC_URL = (): string => getRpcEndpoints()[0];
+export const SOLANA_RPC_URL = (): string => RPC_ENDPOINTS[0];
 
-export const getConnection = (
-    cluster: SupportedSolanaCluster = getSolanaCluster(),
-): Connection => {
-    const cached = connections.get(cluster);
-    if (cached) {
-        return cached;
+export const getConnection = (): Connection => {
+    if (cachedConnection) {
+        return cachedConnection;
     }
 
-    const connection = new Connection(getRpcEndpoints(cluster)[0], CONNECTION_CONFIG);
-    connections.set(cluster, connection);
-    return connection;
+    cachedConnection = new Connection(RPC_ENDPOINTS[0], CONNECTION_CONFIG);
+    return cachedConnection;
 };
 
 /** Try each RPC endpoint until one returns a valid blockhash */
-export const getLatestBlockhashWithFallback = async (
-    cluster: SupportedSolanaCluster = getSolanaCluster(),
-) => {
+export const getLatestBlockhashWithFallback = async () => {
     const errors: string[] = [];
-    for (const url of getRpcEndpoints(cluster)) {
+    for (const url of RPC_ENDPOINTS) {
         try {
             const conn = new Connection(url, CONNECTION_CONFIG);
             const result = await conn.getLatestBlockhash('confirmed');
-            connections.set(cluster, conn);
+            cachedConnection = conn;
             return result;
         } catch (e: any) {
             errors.push(`${url}: ${e?.message ?? 'unknown'}`);
         }
     }
-    throw new Error(`All ${cluster} RPC endpoints failed:\n${errors.join('\n')}`);
+    throw new Error(`All mainnet RPC endpoints failed:\n${errors.join('\n')}`);
 };
 
-export const getSolanaNetworkLabel = (): 'Mainnet' | 'Devnet' =>
-    getClusterLabel(getSolanaCluster());
+export const getSolanaNetworkLabel = (): 'Mainnet' => getClusterLabel();

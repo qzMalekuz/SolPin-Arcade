@@ -3,11 +3,11 @@ import {
     View,
     StyleSheet,
     StatusBar,
-    Alert,
     Animated,
     Easing,
     Pressable,
     ActivityIndicator,
+    Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -17,6 +17,7 @@ import { Colors, Spacing, Animations } from '../theme';
 import { NeonButton } from '../components/NeonButton';
 import { NeonCard } from '../components/NeonCard';
 import { GlowText } from '../components/GlowText';
+import { useAppModal } from '../components/AppModal';
 import { useWalletStore } from '../store/walletStore';
 import { useInGameWalletStore } from '../store/inGameWalletStore';
 import {
@@ -32,7 +33,7 @@ import {
 } from '../solana/phantom';
 import { getSolanaNetworkLabel } from '../solana/connection';
 import { useGameStore, type GameStatus } from '../store/gameStore';
-import { useNetworkStore, type SupportedSolanaCluster } from '../store/networkStore';
+import { useNetworkStore } from '../store/networkStore';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Wallet'>;
@@ -67,13 +68,12 @@ const useFadeInDown = (delay = 0) => {
 
 export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
-    const { duration, setStatus, setTimeRemaining, setTxSignature, setTutorialMode } = useGameStore();
+    const { alert: showAlert } = useAppModal();
+    const { duration, setStatus, setTimeRemaining, setTxSignature } = useGameStore();
     const { hydrate, hydrated, getBalanceSol, fetchSolPrice, solPrice } = useInGameWalletStore();
     const {
-        cluster,
         hydrated: networkHydrated,
         hydrate: hydrateNetwork,
-        setCluster,
     } = useNetworkStore();
     const {
         publicKey,
@@ -93,11 +93,18 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     } = useWalletStore();
     const [pendingAction, setPendingAction] = useState<'connect' | 'disconnect' | null>(null);
     const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const igwHighlight = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
         if (!hydrated) void hydrate();
         if (!networkHydrated) void hydrateNetwork();
         void fetchSolPrice();
+
+        const priceInterval = setInterval(() => {
+            void fetchSolPrice();
+        }, 5000);
+
+        return () => clearInterval(priceInterval);
     }, [fetchSolPrice, hydrate, hydrateNetwork, hydrated, networkHydrated]);
 
     const headerAnim = useFadeInDown(100);
@@ -123,7 +130,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
             clearConnectTimeout();
             setPendingAction(null);
             failConnection(phantomError);
-            Alert.alert('Connection Failed', phantomError);
+            showAlert('Connection Failed', phantomError);
             return;
         }
 
@@ -134,7 +141,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         if (!result) {
             const message = 'Could not verify the Phantom connection response.';
             failConnection(message);
-            Alert.alert('Connection Failed', message);
+            showAlert('Connection Failed', message);
             return;
         }
 
@@ -164,7 +171,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
             .catch(() => {
                 void clearPhantomSession();
             });
-    }, [cluster, disconnect, networkHydrated, refreshBalance, restoreConnection]);
+    }, [disconnect, networkHydrated, refreshBalance, restoreConnection]);
 
     useEffect(() => {
         const handleInitialUrl = async () => {
@@ -186,13 +193,13 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                 );
 
                 if (phantomError) {
-                    Alert.alert('Transaction Failed', phantomError);
+                    showAlert('Transaction Failed', phantomError);
                     return;
                 }
 
                 const signature = getPhantomSignatureFromUrl(initialUrl);
                 if (!signature) {
-                    Alert.alert('Transaction Failed', 'Could not verify the Phantom transaction signature.');
+                    showAlert('Transaction Failed', 'Could not verify the Phantom transaction signature.');
                     return;
                 }
 
@@ -218,13 +225,13 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                 );
 
                 if (phantomError) {
-                    Alert.alert('Transaction Failed', phantomError);
+                    showAlert('Transaction Failed', phantomError);
                     return;
                 }
 
                 const signature = getPhantomSignatureFromUrl(url);
                 if (!signature) {
-                    Alert.alert('Transaction Failed', 'Could not verify the Phantom transaction signature.');
+                    showAlert('Transaction Failed', 'Could not verify the Phantom transaction signature.');
                     return;
                 }
 
@@ -271,7 +278,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
             connectTimeoutRef.current = setTimeout(() => {
                 setPendingAction(null);
                 failConnection('Phantom did not return to the app in time. Please try again.');
-                Alert.alert('Connection Timed Out', 'Phantom did not return to the app in time. Please try again.');
+                showAlert('Connection Timed Out', 'Phantom did not return to the app in time. Please try again.');
             }, 60000);
             await openPhantomLink(url);
         } catch (error: any) {
@@ -279,9 +286,39 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
             setPendingAction(null);
             const message = error?.message || 'Could not open Phantom.';
             failConnection(message);
-            Alert.alert('Connection Failed', message);
+            showAlert('Connection Failed', message);
         }
     }, [beginConnection, clearConnectTimeout, failConnection, isBusy]);
+
+    const MIN_STAKE = 0.001;
+
+    const pulseIgwCard = useCallback(() => {
+        igwHighlight.setValue(0);
+        Animated.sequence([
+            Animated.timing(igwHighlight, { toValue: 1, duration: 200, useNativeDriver: true }),
+            Animated.timing(igwHighlight, { toValue: 0, duration: 200, useNativeDriver: true }),
+            Animated.timing(igwHighlight, { toValue: 1, duration: 200, useNativeDriver: true }),
+            Animated.timing(igwHighlight, { toValue: 0, duration: 300, useNativeDriver: true }),
+        ]).start();
+    }, [igwHighlight]);
+
+    const handlePlay = useCallback(() => {
+        const igwBalance = getBalanceSol();
+        if (igwBalance < MIN_STAKE) {
+            const needed = (MIN_STAKE - igwBalance).toFixed(4);
+            pulseIgwCard();
+            showAlert(
+                'Insufficient Balance',
+                `You need at least ${MIN_STAKE} SOL in your in-game wallet to play.\n\nTop up ${needed} SOL to continue.`,
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Top Up', onPress: () => navigation.navigate('InGameWallet') },
+                ],
+            );
+            return;
+        }
+        navigation.navigate('Setup');
+    }, [getBalanceSol, navigation, pulseIgwCard, showAlert]);
 
     const handleDisconnect = useCallback(async () => {
         if (!session || isBusy) {
@@ -303,28 +340,6 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         }
     }, [beginDisconnect, disconnect, isBusy, session]);
 
-    const handleTutorial = useCallback(() => {
-        setTutorialMode(true);
-        setTimeRemaining(60);
-        setStatus('playing');
-        navigation.navigate('Game');
-    }, [navigation, setStatus, setTimeRemaining, setTutorialMode]);
-
-    const handleClusterChange = useCallback(async (nextCluster: SupportedSolanaCluster) => {
-        if (nextCluster === cluster || isBusy) {
-            return;
-        }
-
-        clearConnectTimeout();
-        setPendingAction(null);
-
-        if (connected) {
-            await clearPhantomSession();
-            disconnect();
-        }
-
-        await setCluster(nextCluster);
-    }, [clearConnectTimeout, cluster, connected, disconnect, isBusy, setCluster]);
 
     return (
         <View
@@ -335,84 +350,56 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         >
             <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
 
-            <Animated.View style={[styles.header, headerAnim]}>
-                <GlowText color={Colors.textPrimary} size="hero" align="center" weight="700" glow={1}>
-                    SolPin
-                </GlowText>
-                <GlowText color={Colors.textSecondary} size="xl" align="center" weight="600" glow={0} style={styles.subtitle}>
-                    ARCADE
-                </GlowText>
-            </Animated.View>
-
-            <Animated.View style={cardAnim}>
-                <NeonCard style={styles.card}>
-                    {connected && publicKey ? (
-                        <>
-                            <GlowText color={Colors.success} size="sm" align="center" weight="600" glow={1}>
-                                CONNECTED{walletName ? ` VIA ${walletName}` : ''}
-                            </GlowText>
-                            <GlowText color={Colors.textPrimary} size="lg" align="center" weight="600" glow={0} style={styles.address}>
-                                {truncateAddress(publicKey.toBase58(), 6)}
-                            </GlowText>
-                            <View style={styles.balanceRow}>
-                                <GlowText color={Colors.textSecondary} size="body" glow={0}>
-                                    Balance
-                                </GlowText>
-                                <GlowText color={Colors.textPrimary} size="lg" weight="700" glow={0}>
-                                    {`${balance.toFixed(4)} SOL`}
-                                </GlowText>
-                            </View>
-                            <GlowText color={Colors.textMuted} size="xs" align="center" glow={0} style={styles.networkBadge}>
-                                {getSolanaNetworkLabel()}
-                            </GlowText>
-                        </>
+            {connected && (
+                <Pressable
+                    onPress={handleDisconnect}
+                    disabled={isBusy}
+                    style={[styles.disconnectBtn, { top: insets.top + Spacing.sm }]}
+                >
+                    {pendingAction === 'disconnect' ? (
+                        <ActivityIndicator color="#fff" size="small" />
                     ) : (
-                        <>
-                            <GlowText color={Colors.textSecondary} size="body" align="center" glow={0}>
-                                Connect Phantom on Solana {cluster === 'devnet' ? 'devnet' : 'mainnet'} to play.
-                            </GlowText>
-                            <GlowText color={Colors.textMuted} size="xs" align="center" glow={0} style={styles.networkBadge}>
-                                Network: {getSolanaNetworkLabel()}
-                            </GlowText>
-                            {lastError ? (
-                                <GlowText color={Colors.danger} size="xs" align="center" glow={0} style={styles.errorText}>
-                                    {lastError}
-                                </GlowText>
-                            ) : null}
-                        </>
+                        <GlowText color="#ffffff" size="xs" weight="700" glow={0}>
+                            Disconnect
+                        </GlowText>
                     )}
-                </NeonCard>
+                </Pressable>
+            )}
+
+            <View style={styles.spacer} />
+
+            <Animated.View style={[styles.header, headerAnim]}>
+                <Image
+                    source={require('../../assets/splash-icon.png')}
+                    style={styles.logo}
+                    resizeMode="contain"
+                />
             </Animated.View>
 
-            <Animated.View style={cardAnim}>
-                <NeonCard style={styles.networkCard}>
-                    <GlowText color={Colors.textSecondary} size="xs" weight="600" glow={0} style={styles.networkTitle}>
-                        TRANSACTION NETWORK
-                    </GlowText>
-                    <View style={styles.networkToggleRow}>
-                        {(['devnet', 'mainnet-beta'] as const).map((option) => {
-                            const selected = cluster === option;
-                            return (
-                                <NeonButton
-                                    key={option}
-                                    title={option === 'devnet' ? 'Devnet' : 'Mainnet'}
-                                    onPress={() => void handleClusterChange(option)}
-                                    variant={selected ? 'primary' : 'secondary'}
-                                    size="sm"
-                                    disabled={isBusy}
-                                    style={styles.networkToggleBtn}
-                                />
-                            );
-                        })}
-                    </View>
-                    <GlowText color={Colors.textMuted} size="xs" align="center" glow={0}>
-                        Devnet is recommended for transaction testing. Changing network clears the current Phantom session.
-                    </GlowText>
-                </NeonCard>
-            </Animated.View>
+            {connected && publicKey && (
+                <Animated.View style={cardAnim}>
+                    <NeonCard style={styles.card}>
+                        <GlowText color={Colors.success} size="sm" align="center" weight="600" glow={1}>
+                            CONNECTED{walletName ? ` VIA ${walletName}` : ''}
+                        </GlowText>
+                        <GlowText color={Colors.textPrimary} size="lg" align="center" weight="600" glow={0} style={styles.address}>
+                            {truncateAddress(publicKey.toBase58(), 6)}
+                        </GlowText>
+                        <View style={styles.balanceRow}>
+                            <GlowText color={Colors.textSecondary} size="body" glow={0}>
+                                Balance
+                            </GlowText>
+                            <GlowText color={Colors.textPrimary} size="lg" weight="700" glow={0}>
+                                {`${balance.toFixed(4)} SOL`}
+                            </GlowText>
+                        </View>
+                    </NeonCard>
+                </Animated.View>
+            )}
 
             {connected && (
                 <Animated.View style={cardAnim}>
+                    <Animated.View style={[styles.igwHighlightRing, { opacity: igwHighlight }]} pointerEvents="none" />
                     <NeonCard style={styles.igwCard}>
                         <View style={styles.igwRow}>
                             <View>
@@ -423,13 +410,18 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                                     {getBalanceSol().toFixed(4)} SOL
                                 </GlowText>
                                 {solPrice > 0 && (
-                                    <GlowText color={Colors.textMuted} size="xs" glow={0}>
-                                        ≈ ${(getBalanceSol() * solPrice).toFixed(2)} USD
-                                    </GlowText>
+                                    <>
+                                        <GlowText color={Colors.textMuted} size="xs" glow={0}>
+                                            ≈ ${(getBalanceSol() * solPrice).toFixed(2)} USD
+                                        </GlowText>
+                                        <GlowText color={Colors.textMuted} size="xs" glow={0} style={styles.solRate}>
+                                            1 SOL = ${solPrice.toFixed(2)}
+                                        </GlowText>
+                                    </>
                                 )}
                             </View>
                             <NeonButton
-                                title="Manage"
+                                title="In-Game Wallet"
                                 onPress={() => navigation.navigate('InGameWallet')}
                                 variant="secondary"
                                 size="sm"
@@ -440,6 +432,12 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                 </Animated.View>
             )}
 
+            {lastError && !connected ? (
+                <GlowText color={Colors.danger} size="xs" align="center" glow={0} style={styles.errorText}>
+                    {lastError}
+                </GlowText>
+            ) : null}
+
             <View style={styles.spacer} />
 
             <Animated.View style={[styles.actions, actionsAnim]}>
@@ -447,7 +445,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                     <>
                         <NeonButton
                             title="Play"
-                            onPress={() => navigation.navigate('Setup')}
+                            onPress={handlePlay}
                             variant="primary"
                             size="lg"
                             disabled={isBusy}
@@ -460,15 +458,6 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                             disabled={isBusy}
                             style={styles.secondaryBtn}
                         />
-                        <Pressable onPress={handleDisconnect} disabled={isBusy} style={styles.disconnectLink}>
-                            {pendingAction === 'disconnect' ? (
-                                <ActivityIndicator color={Colors.danger} size="small" />
-                            ) : (
-                                <GlowText color={isBusy ? Colors.textMuted : Colors.danger} size="sm" align="center" glow={0}>
-                                    Disconnect
-                                </GlowText>
-                            )}
-                        </Pressable>
                     </>
                 ) : (
                     <>
@@ -480,21 +469,8 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                             loading={pendingAction === 'connect'}
                             disabled={isBusy}
                         />
-                        <NeonButton
-                            title="Tutorial Mode"
-                            onPress={handleTutorial}
-                            variant="secondary"
-                            size="md"
-                            style={styles.secondaryBtn}
-                        />
                     </>
                 )}
-            </Animated.View>
-
-            <Animated.View style={footerAnim}>
-                <GlowText color={Colors.textMuted} size="xs" align="center" glow={0} style={styles.footer}>
-                    Skill-based arcade staking • {getSolanaNetworkLabel()} • Phantom Mobile
-                </GlowText>
             </Animated.View>
         </View>
     );
@@ -506,8 +482,8 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.bg,
         paddingHorizontal: Spacing.lg,
     },
-    header: { marginBottom: Spacing.xl },
-    subtitle: { marginTop: -2, letterSpacing: 8 },
+    header: { marginBottom: Spacing.sm, alignItems: 'center', marginTop: Spacing.xl },
+    logo: { width: 800, height: 400 },
     card: { marginBottom: Spacing.lg },
     address: { marginTop: Spacing.sm },
     balanceRow: {
@@ -519,18 +495,42 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: Colors.border,
     },
-    networkBadge: { marginTop: Spacing.sm, letterSpacing: 1 },
-    networkCard: { marginBottom: Spacing.md, gap: Spacing.sm },
-    networkTitle: { textAlign: 'center', letterSpacing: 1.2 },
-    networkToggleRow: { flexDirection: 'row', gap: Spacing.sm },
-    networkToggleBtn: { flex: 1 },
-    errorText: { marginTop: Spacing.md, lineHeight: 18 },
-    spacer: { flex: 1 },
+    errorText: { marginTop: Spacing.sm, lineHeight: 18 },
+    spacer: { flex: 0.45 },
     actions: {},
     secondaryBtn: { marginTop: Spacing.md },
     disconnectLink: { marginTop: Spacing.md, paddingVertical: Spacing.sm, alignItems: 'center' },
+    disconnectBtn: {
+        position: 'absolute',
+        right: Spacing.lg,
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
+        borderRadius: 20,
+        backgroundColor: '#7f0000',
+        borderWidth: 1,
+        borderColor: '#ff2222',
+        shadowColor: '#ff0000',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.6,
+        shadowRadius: 8,
+        elevation: 6,
+        zIndex: 100,
+    },
     footer: { marginTop: Spacing.xl },
     igwCard: { marginBottom: Spacing.md, marginTop: Spacing.sm },
     igwRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     igwLabel: { letterSpacing: 1.5, marginBottom: 2 },
+    solRate: { marginTop: 2 },
+    igwHighlightRing: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+        borderRadius: 22,
+        borderWidth: 2,
+        borderColor: '#f87171',
+        shadowColor: '#f87171',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.9,
+        shadowRadius: 12,
+        zIndex: 10,
+    },
 });
