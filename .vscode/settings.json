@@ -1,0 +1,10 @@
+{
+  "files.watcherExclude": {
+    "**/node_modules.nosync/**": true,
+    "**/node_modules 2/**": true
+  },
+  "search.exclude": {
+    "**/node_modules.nosync": true,
+    "**/node_modules 2": true
+  }
+}
