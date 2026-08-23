@@ -5,12 +5,14 @@ import { IS_DEVNET } from '../store/networkStore';
 // all money paths verify a wallet signature server-side.
 
 // Production project (mainnet). Used by release builds ONLY.
-const PROD_SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
-const PROD_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
+const PROD_SUPABASE_URL = 'https://mpbffsrkzjjgzhhwikvd.supabase.co';
+const PROD_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1wYmZmc3JrempqZ3poaHdpa3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc0NzAyNDIsImV4cCI6MjEwMzA0NjI0Mn0.rZZTqAg1m6tOyqqjTfpkw3SHfIQmljwoNBPUhr3yylo';
 
 // Test project (devnet: RPC_URL=https://api.devnet.solana.com, devnet
 // treasury keypair in its secrets). Used by dev builds ONLY — keeps test
 // rounds/balances out of the production ledger.
+// NOTE: this project was deleted 2026-08-23 to free a free-tier slot for
+// prod. Dev builds have no backend until a new test project is provisioned.
 const DEV_SUPABASE_URL = 'https://odqxnorbvllfsufaneie.supabase.co';
 const DEV_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kcXhub3JidmxsZnN1ZmFuZWllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyNTM4NDUsImV4cCI6MjEwMjgyOTg0NX0.226qu5oSQm0zS0GsN4kU4VwDWhGRt2OQnCAe7ikeNsk';
 
