@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import * as Linking from 'expo-linking';
 import bs58 from 'bs58';
 import { Buffer } from 'buffer';
@@ -9,7 +9,7 @@ import { getSolanaCluster } from './connection';
 const PHANTOM_BASE = 'https://phantom.app/ul/';
 const PHANTOM_CONNECT = 'v1/connect';
 const PHANTOM_SIGN_TRANSACTION = 'v1/signTransaction';
-const PHANTOM_SIGN_AND_SEND = 'v1/signAndSendTransaction';
+const PHANTOM_SIGN_MESSAGE = 'v1/signMessage';
 const PHANTOM_DISCONNECT = 'v1/disconnect';
 
 type StoredPhantomSession = {
@@ -63,20 +63,22 @@ const getDappKeyPair = (): nacl.BoxKeyPair => {
     return dappKeyPair;
 };
 
+// Session holds the dapp's nacl secret key — keep it in the platform
+// keystore (Keychain/Keystore via SecureStore), never plain AsyncStorage.
 const saveSession = async (
     session: StoredPhantomSession,
 ): Promise<void> => {
-    await AsyncStorage.setItem(getPhantomSessionStorageKey(), JSON.stringify(session));
+    await SecureStore.setItemAsync(getPhantomSessionStorageKey(), JSON.stringify(session));
 };
 
 export const clearPhantomSession = async (): Promise<void> => {
     dappKeyPair = null;
     phantomEncryptionPublicKey = null;
-    await AsyncStorage.removeItem(getPhantomSessionStorageKey());
+    await SecureStore.deleteItemAsync(getPhantomSessionStorageKey());
 };
 
 export const hydratePhantomSession = async (): Promise<PhantomSessionState | null> => {
-    const storedValue = await AsyncStorage.getItem(getPhantomSessionStorageKey());
+    const storedValue = await SecureStore.getItemAsync(getPhantomSessionStorageKey());
     if (!storedValue) {
         return null;
     }
@@ -240,7 +242,7 @@ const encryptPayload = (payload: object): { nonce: string; payload: string } => 
     const keyPair = getDappKeyPair();
     const nonce = nacl.randomBytes(24);
     const encryptedPayload = nacl.box(
-        Buffer.from(JSON.stringify(payload)),
+        new Uint8Array(Buffer.from(JSON.stringify(payload))),
         nonce,
         phantomEncryptionPublicKey,
         keyPair.secretKey,
@@ -250,31 +252,6 @@ const encryptPayload = (payload: object): { nonce: string; payload: string } => 
         nonce: bs58.encode(nonce),
         payload: bs58.encode(encryptedPayload),
     };
-};
-
-export const buildSignAndSendUrl = (
-    transaction: Transaction,
-    session: string,
-    redirectPath: string = 'onSignAndSend',
-): string => {
-    const keyPair = getDappKeyPair();
-    const serializedTransaction = transaction.serialize({
-        requireAllSignatures: false,
-    });
-
-    const encrypted = encryptPayload({
-        transaction: bs58.encode(serializedTransaction),
-        session,
-    });
-
-    const params = new URLSearchParams({
-        dapp_encryption_public_key: bs58.encode(keyPair.publicKey),
-        nonce: encrypted.nonce,
-        redirect_link: getRedirectUri(redirectPath),
-        payload: encrypted.payload,
-    });
-
-    return `${PHANTOM_BASE}${PHANTOM_SIGN_AND_SEND}?${params.toString()}`;
 };
 
 export const buildSignTransactionUrl = (
@@ -288,7 +265,7 @@ export const buildSignTransactionUrl = (
     });
 
     const encrypted = encryptPayload({
-        transaction: bs58.encode(serializedTransaction),
+        transaction: bs58.encode(new Uint8Array(serializedTransaction)),
         session,
     });
 
@@ -302,7 +279,30 @@ export const buildSignTransactionUrl = (
     return `${PHANTOM_BASE}${PHANTOM_SIGN_TRANSACTION}?${params.toString()}`;
 };
 
-export const parseSignAndSendResponse = (
+export const buildSignMessageUrl = (
+    message: string,
+    session: string,
+    redirectPath: string = 'onSignMessage',
+): string => {
+    const keyPair = getDappKeyPair();
+    const encrypted = encryptPayload({
+        message: bs58.encode(new Uint8Array(Buffer.from(message, 'utf8'))),
+        session,
+        display: 'utf8',
+    });
+
+    const params = new URLSearchParams({
+        dapp_encryption_public_key: bs58.encode(keyPair.publicKey),
+        nonce: encrypted.nonce,
+        redirect_link: getRedirectUri(redirectPath),
+        payload: encrypted.payload,
+    });
+
+    return `${PHANTOM_BASE}${PHANTOM_SIGN_MESSAGE}?${params.toString()}`;
+};
+
+/** Returns the base58 ed25519 signature from a signMessage redirect. */
+export const parseSignMessageResponse = (
     url: string,
 ): { signature: string } | null => {
     try {
@@ -311,24 +311,16 @@ export const parseSignAndSendResponse = (
         }
 
         const params = getQueryParams(url);
-        if (params.errorCode) {
+        if (params.errorCode || !params.nonce || !params.data) {
             return null;
         }
 
-        if (!params.nonce || !params.data) {
-            return null;
-        }
-
-        const nonce = bs58.decode(params.nonce);
-        const data = bs58.decode(params.data);
-        const keyPair = getDappKeyPair();
         const decrypted = nacl.box.open(
-            data,
-            nonce,
+            bs58.decode(params.data),
+            bs58.decode(params.nonce),
             phantomEncryptionPublicKey,
-            keyPair.secretKey,
+            getDappKeyPair().secretKey,
         );
-
         if (!decrypted) {
             return null;
         }
@@ -338,11 +330,6 @@ export const parseSignAndSendResponse = (
     } catch {
         return null;
     }
-};
-
-export const getPhantomSignatureFromUrl = (url: string): string | null => {
-    const result = parseSignAndSendResponse(url);
-    return result?.signature ?? null;
 };
 
 export const parseSignTransactionResponse = (

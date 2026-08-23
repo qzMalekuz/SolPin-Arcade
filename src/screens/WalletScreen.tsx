@@ -25,14 +25,18 @@ import {
     buildDisconnectUrl,
     clearPhantomSession,
     getPhantomErrorMessage,
-    getPhantomSignatureFromUrl,
     hydratePhantomSession,
     openPhantomLink,
     parseConnectResponse,
     truncateAddress,
 } from '../solana/phantom';
+import {
+    disconnectMWA,
+    hydrateMWASession,
+    isMWASupported,
+} from '../solana/mwa';
+import { clearApiToken, connectMWAWithAuth, ensureAuthedSilently } from '../api/backend';
 import { getSolanaNetworkLabel } from '../solana/connection';
-import { useGameStore, type GameStatus } from '../store/gameStore';
 import { useNetworkStore } from '../store/networkStore';
 import type { RootStackParamList } from '../../App';
 
@@ -69,8 +73,7 @@ const useFadeInDown = (delay = 0) => {
 export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
     const { alert: showAlert } = useAppModal();
-    const { duration, setStatus, setTimeRemaining, setTxSignature } = useGameStore();
-    const { hydrate, hydrated, getBalanceSol, fetchSolPrice, solPrice } = useInGameWalletStore();
+    const { hydrate, hydrated, getBalanceSol, fetchSolPrice, refreshIfAuthed, setWalletOwner, solPrice } = useInGameWalletStore();
     const {
         hydrated: networkHydrated,
         hydrate: hydrateNetwork,
@@ -81,6 +84,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         balance,
         session,
         walletName,
+        provider,
         connectionStatus,
         lastError,
         beginConnection,
@@ -145,32 +149,59 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
             return;
         }
 
-        completeConnection(result);
+        completeConnection({ ...result, provider: 'phantom' });
+        void setWalletOwner(result.publicKey.toBase58());
         setTimeout(() => {
             void refreshBalance();
         }, 700);
-    }, [clearConnectTimeout, completeConnection, failConnection, refreshBalance]);
+        // Mint the game-server token in the background (one free signature);
+        // if declined, sign-in happens on the first money action instead.
+        void ensureAuthedSilently().then((ok) => {
+            if (ok) void refreshIfAuthed();
+        });
+    }, [clearConnectTimeout, completeConnection, failConnection, refreshBalance, refreshIfAuthed]);
 
     useEffect(() => {
         if (!networkHydrated) {
             return;
         }
 
-        hydratePhantomSession()
-            .then((restoredSession) => {
-                if (!restoredSession) {
-                    disconnect();
+        const restore = async () => {
+            if (isMWASupported()) {
+                const mwaSession = await hydrateMWASession();
+                if (mwaSession) {
+                    restoreConnection({
+                        publicKey: mwaSession.publicKey,
+                        session: mwaSession.authToken,
+                        walletName: mwaSession.walletLabel,
+                        provider: 'mwa',
+                    });
+                    void setWalletOwner(mwaSession.publicKey.toBase58());
+                    setTimeout(() => {
+                        void refreshBalance();
+                    }, 500);
+                    void refreshIfAuthed();
                     return;
                 }
+            }
 
-                restoreConnection(restoredSession);
-                setTimeout(() => {
-                    void refreshBalance();
-                }, 500);
-            })
-            .catch(() => {
-                void clearPhantomSession();
-            });
+            const restoredSession = await hydratePhantomSession();
+            if (!restoredSession) {
+                disconnect();
+                return;
+            }
+
+            restoreConnection({ ...restoredSession, provider: 'phantom' });
+            void setWalletOwner(restoredSession.publicKey.toBase58());
+            setTimeout(() => {
+                void refreshBalance();
+            }, 500);
+            void refreshIfAuthed();
+        };
+
+        restore().catch(() => {
+            void clearPhantomSession();
+        });
     }, [disconnect, networkHydrated, refreshBalance, restoreConnection]);
 
     useEffect(() => {
@@ -183,30 +214,6 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
 
             if (initialUrl.includes('onConnect')) {
                 await handlePhantomConnectRedirect(initialUrl);
-                return;
-            }
-
-            if (initialUrl.includes('onSignAndSend')) {
-                const phantomError = getPhantomErrorMessage(
-                    initialUrl,
-                    'Phantom returned an invalid transaction response.',
-                );
-
-                if (phantomError) {
-                    showAlert('Transaction Failed', phantomError);
-                    return;
-                }
-
-                const signature = getPhantomSignatureFromUrl(initialUrl);
-                if (!signature) {
-                    showAlert('Transaction Failed', 'Could not verify the Phantom transaction signature.');
-                    return;
-                }
-
-                setTxSignature(signature);
-                setTimeRemaining(duration);
-                setStatus('playing');
-                navigation.replace('Game');
             }
         };
 
@@ -215,30 +222,6 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         const subscription = Linking.addEventListener('url', ({ url }) => {
             if (url.includes('onConnect')) {
                 void handlePhantomConnectRedirect(url);
-                return;
-            }
-
-            if (url.includes('onSignAndSend')) {
-                const phantomError = getPhantomErrorMessage(
-                    url,
-                    'Phantom returned an invalid transaction response.',
-                );
-
-                if (phantomError) {
-                    showAlert('Transaction Failed', phantomError);
-                    return;
-                }
-
-                const signature = getPhantomSignatureFromUrl(url);
-                if (!signature) {
-                    showAlert('Transaction Failed', 'Could not verify the Phantom transaction signature.');
-                    return;
-                }
-
-                setTxSignature(signature);
-                setTimeRemaining(duration);
-                setStatus('playing');
-                navigation.replace('Game');
                 return;
             }
 
@@ -256,12 +239,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
     }, [
         clearConnectTimeout,
         disconnect,
-        duration,
         handlePhantomConnectRedirect,
-        navigation,
-        setStatus,
-        setTimeRemaining,
-        setTxSignature,
     ]);
 
     const handleConnect = useCallback(async () => {
@@ -271,6 +249,33 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
 
         beginConnection();
         setPendingAction('connect');
+
+        // Android: Mobile Wallet Adapter — system wallet chooser covering the
+        // Seeker Seed Vault wallet, Phantom, Solflare, etc. iOS: Phantom deeplink.
+        if (isMWASupported()) {
+            try {
+                // Authorize + game-server sign-in in one wallet session
+                const mwaSession = await connectMWAWithAuth();
+                setPendingAction(null);
+                completeConnection({
+                    publicKey: mwaSession.publicKey,
+                    session: mwaSession.authToken,
+                    walletName: mwaSession.walletLabel,
+                    provider: 'mwa',
+                });
+                void setWalletOwner(mwaSession.publicKey.toBase58());
+                setTimeout(() => {
+                    void refreshBalance();
+                }, 500);
+                void refreshIfAuthed();
+            } catch (error: any) {
+                setPendingAction(null);
+                const message = error?.message || 'Could not connect to a mobile wallet. Is one installed?';
+                failConnection(message);
+                showAlert('Connection Failed', message);
+            }
+            return;
+        }
 
         try {
             const url = await buildConnectUrl();
@@ -288,7 +293,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
             failConnection(message);
             showAlert('Connection Failed', message);
         }
-    }, [beginConnection, clearConnectTimeout, failConnection, isBusy]);
+    }, [beginConnection, clearConnectTimeout, completeConnection, failConnection, isBusy, refreshBalance, refreshIfAuthed]);
 
     const MIN_STAKE = 0.001;
 
@@ -328,17 +333,33 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
         beginDisconnect();
         setPendingAction('disconnect');
 
+        if (provider === 'mwa') {
+            try {
+                await disconnectMWA();
+            } catch {
+                // Local session cleanup below is what actually disconnects.
+            } finally {
+                await clearApiToken();
+                await setWalletOwner(null);
+                setPendingAction(null);
+                disconnect();
+            }
+            return;
+        }
+
         try {
             const url = buildDisconnectUrl(session);
             await openPhantomLink(url);
         } catch {
             // Phantom may not return a callback for disconnect; clear local state anyway.
         } finally {
+            await clearApiToken();
+            await setWalletOwner(null);
             setPendingAction(null);
             await clearPhantomSession();
             disconnect();
         }
-    }, [beginDisconnect, disconnect, isBusy, session]);
+    }, [beginDisconnect, disconnect, isBusy, provider, session, setWalletOwner]);
 
 
     return (
@@ -462,7 +483,7 @@ export const WalletScreen: React.FC<Props> = ({ navigation }) => {
                 ) : (
                     <>
                         <NeonButton
-                            title={pendingAction === 'connect' ? 'Opening Phantom...' : 'Connect Wallet'}
+                            title={pendingAction === 'connect' ? (isMWASupported() ? 'Opening Wallet...' : 'Opening Phantom...') : 'Connect Wallet'}
                             onPress={handleConnect}
                             variant="primary"
                             size="lg"

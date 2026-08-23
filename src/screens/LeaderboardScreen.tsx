@@ -37,14 +37,22 @@ const AnimatedRow: React.FC<{ index: number; children: React.ReactNode; isTop3: 
 
 export const LeaderboardScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
-    const { entries, isLoading, lastUpdated, load } = useLeaderboardStore();
+    const { entries, isLoading, lastUpdated, loadFailed, load } = useLeaderboardStore();
 
-    // Load on mount and poll every 10s for updates
+    // Load on focus and poll while focused — the screen stays mounted under
+    // the native stack, so an unconditional interval would poll forever.
     useEffect(() => {
-        void load();
-        const interval = setInterval(() => { void load(); }, 10000);
-        return () => clearInterval(interval);
-    }, [load]);
+        let interval: ReturnType<typeof setInterval> | null = null;
+        const start = () => {
+            void load();
+            interval = setInterval(() => { void load(); }, 15000);
+        };
+        const stop = () => { if (interval) { clearInterval(interval); interval = null; } };
+        if (navigation.isFocused()) start();
+        const subFocus = navigation.addListener('focus', start);
+        const subBlur = navigation.addListener('blur', stop);
+        return () => { stop(); subFocus(); subBlur(); };
+    }, [load, navigation]);
 
     const titleOpacity = useRef(new Animated.Value(0)).current;
     useEffect(() => {
@@ -98,7 +106,9 @@ export const LeaderboardScreen: React.FC<Props> = ({ navigation }) => {
                 {entries.length === 0 && !isLoading ? (
                     <View style={styles.empty}>
                         <GlowText color={Colors.textMuted} size="body" align="center" glow={0}>
-                            No scores yet. Play a round to appear here!
+                            {loadFailed
+                                ? 'Could not load the leaderboard. Retrying…'
+                                : 'No scores yet. Play a round to appear here!'}
                         </GlowText>
                     </View>
                 ) : (

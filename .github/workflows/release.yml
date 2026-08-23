@@ -1,0 +1,27 @@
+name: Release to Solana dApp Store
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-and-submit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Builds the signed APK on EAS. Store submission stays local (npm run submit)
+      # so the publisher wallet key never lives in GitHub.
+      - name: EAS build (Android APK)
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx eas-cli build --platform android --profile production \
+            --non-interactive --wait

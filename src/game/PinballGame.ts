@@ -145,7 +145,7 @@ let ball={x:TW-40,y:TH-190,vx:0,vy:0,alive:true,go:false,angle:0,glow:0,sq:1,sqN
 let score=0,combo=0,cT=0,tLeft=DUR,st='playing',lt=performance.now(),tt=0;
 let lp=0,chrg=false,parts=[],pops=[],ripples=[];
 let shake={x:0,y:0,t:0};
-let comboMax=0,stuckT=0;
+let comboMax=0,stuckT=0,lastTimerSent=-1;
 let lastNx=0,lastNy=-1; // last valid collision normal for anti-stuck
 
 function part(x,y,n,pw){pw=pw||1;for(let i=0;i<n;i++){const a=Math.random()*T2,s=(1+Math.random()*3)*pw;parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,l:1,r:1.5+Math.random()*3});}}
@@ -166,9 +166,13 @@ function refl(vx,vy,nx,ny,r){const d=vx*nx+vy*ny;return{vx:vx-2*d*nx*r,vy:vy-2*d
 function clampV(vx,vy,max){const s=Math.hypot(vx,vy);if(s>max){const f=max/s;return{vx:vx*f,vy:vy*f};}return{vx,vy};}
 
 function inDrainZone(){
-  const lTipX=flippers[0].px+Math.cos(flippers[0].angle)*flippers[0].len;
-  const rTipX=flippers[1].px+Math.cos(flippers[1].angle)*flippers[1].len;
-  return ball.y>flippers[0].py && ball.x>lTipX-5 && ball.x<rTipX+5;
+  // Rest-pose tips, and only BELOW the flippers' reach: the zone must never
+  // cover a ball still rolling on a flipper, or its collider vanishes
+  // mid-save and the ball falls through near the tip.
+  const lTipX=flippers[0].px+Math.cos(flippers[0].rest)*flippers[0].len;
+  const rTipX=flippers[1].px+Math.cos(flippers[1].rest)*flippers[1].len;
+  const belowY=flippers[0].py+Math.sin(flippers[0].rest)*flippers[0].len+BR+2;
+  return ball.y>belowY && ball.x>lTipX-5 && ball.x<rTipX+5;
 }
 
 // ──── PHYSICS ────
@@ -179,6 +183,14 @@ function step(dt){
   const gMul=draining?1.15:1;
 
   for(let i=0;i<N;i++){
+    // Flipper angle advances per substep so collisions see the swept motion
+    // instead of a once-per-frame teleporting line.
+    for(const f of flippers){
+      const tgt=f.on?f.flip:f.rest;
+      const df=tgt-f.angle;
+      const mv=(f.on?30:10)*sub;
+      f.angle+=Math.abs(df)<mv?df:Math.sign(df)*mv;
+    }
     if(ball.go){
       ball.vy+=G*gMul*60*sub;
       ball.vx*=0.9998;ball.vy*=0.9998;
@@ -219,6 +231,8 @@ function step(dt){
         ball.x=c.x+nx*(mn+.5);ball.y=c.y+ny*(mn+.5);
         const b=refl(ball.vx,ball.vy,nx,ny,WREST);
         ball.vx=b.vx;ball.vy=b.vy;
+        // Funnel corners must not bounce a draining ball back into play.
+        if(draining){ball.vx*=0.5;if(ball.vy<0)ball.vy=0;}
         lastNx=nx;lastNy=ny;
       }
     }
@@ -261,7 +275,11 @@ function step(dt){
             if(ball.vy>-FP*0.35)ball.vy=-FP*0.35;
             cv=clampV(ball.vx,ball.vy,MAX_V);ball.vx=cv.vx;ball.vy=cv.vy;
             f.flash=1;setTimeout(()=>{f.flash=0;},100);
-            part(cx,cy,8,1.3);addS(30,cx,cy);ripple(cx,cy,20);
+            // Score cooldown: repeated contact with a held-up flipper must
+            // not farm points/combo risk-free every substep.
+            const fnow=performance.now();
+            if(fnow-(f.lastScoreT||0)>250){f.lastScoreT=fnow;addS(30,cx,cy);}
+            part(cx,cy,8,1.3);ripple(cx,cy,20);
             doShake(3);sndFlip();send('haptic',{level:'medium'});ball.glow=0.8;ball.sq=0.78;ball.sqNx=nx;ball.sqNy=ny;
           }else{
             const b=refl(ball.vx,ball.vy,nx,ny,0.6);
@@ -288,7 +306,7 @@ function step(dt){
   if(ball.go){
     const spd=Math.hypot(ball.vx,ball.vy);
     if(spd<MIN_V){
-      stuckT+=dt;
+      stuckT+=dtC;
       if(stuckT>0.30){
         // Impulse toward center of board
         ball.vx+=(TW/2-ball.x)*0.02+(Math.random()-.5)*2;
@@ -300,24 +318,19 @@ function step(dt){
   }
 
   // Ball rotation + state decay
-  if(ball.go){ball.angle+=ball.vx*dt*2.5;}
-  if(ball.glow>0)ball.glow=Math.max(0,ball.glow-dt*3.5);
-  if(ball.sq<1)ball.sq=Math.min(1,ball.sq+dt*9);
-  // Flipper angle update
-  for(const f of flippers){
-    const tgt=f.on?f.flip:f.rest;
-    const df=tgt-f.angle;
-    const mv=(f.on?30:10)*dt;
-    f.angle+=Math.abs(df)<mv?df:Math.sign(df)*mv;
-  }
+  if(ball.go){ball.angle+=ball.vx*dtC*2.5;}
+  if(ball.glow>0)ball.glow=Math.max(0,ball.glow-dtC*3.5);
+  if(ball.sq<1)ball.sq=Math.min(1,ball.sq+dtC*9);
 
-  // Start countdown only after the ball is launched.
+  // Countdown uses dtC — the SAME timebase the physics simulated — so a slow
+  // (or deliberately throttled) device cannot make survival easier: if the
+  // world slows down, so does the timer.
   if(ball.go){
-    tLeft=Math.max(0,tLeft-dt);
+    tLeft=Math.max(0,tLeft-dtC);
     if(tLeft<=0){st='won';send('gameover',{result:'won',score});return;}
   }
-  send('timer',{timeLeft:Math.ceil(tLeft)});
-  cT+=dt;if(cT>2.5)combo=0;
+  const ctl=Math.ceil(tLeft);if(ctl!==lastTimerSent){lastTimerSent=ctl;send('timer',{timeLeft:ctl});}
+  cT+=dtC;if(cT>2.5&&combo>0){combo=0;send('score',{score,combo:1});}
 }
 
 // ──── DRAW ────
@@ -541,6 +554,7 @@ function loop(now){const dt=Math.min((now-lt)/1000,.05);lt=now;tt+=dt;
 
 // ──── INPUT ────
 document.addEventListener('touchstart',e=>{e.preventDefault();
+  if(st!=='playing')return;
   if(AC.state==='suspended')AC.resume();
   for(const t of e.changedTouches){const x=t.clientX,mid=innerWidth/2;
     if(!ball.go&&x>innerWidth*.76){chrg=true;lp=0;}
@@ -551,13 +565,16 @@ document.addEventListener('touchstart',e=>{e.preventDefault();
 
 document.addEventListener('touchend',e=>{e.preventDefault();
   for(const t of e.changedTouches){const x=t.clientX,mid=innerWidth/2;
-    if(chrg&&!ball.go){chrg=false;ball.go=true;ball.vy=-(10+lp*14);ball.vx=-.8-Math.random()*2;lp=0;sndLaunch();send('launched',{});send('haptic',{level:'heavy'});}
+    // Launch scaled to MAX_V so the whole power bar is real (the old -24 max
+    // was clamped to MAX_V on the first substep, deadening the top ~40%).
+    if(chrg&&!ball.go){chrg=false;ball.go=true;ball.vy=-MAX_V*(0.55+lp*0.45);ball.vx=-.8-Math.random()*2;lp=0;sndLaunch();send('launched',{});send('haptic',{level:'heavy'});}
     else if(x<mid)flippers[0].on=false;
     else flippers[1].on=false;
   }
 },{passive:false});
 
-addEventListener('message',e=>{try{const m=JSON.parse(e.data);if(m.type==='pause')st='paused';else if(m.type==='resume'){st='playing';lt=performance.now();requestAnimationFrame(loop);}}catch(e){}});
+// NOTE: the loop keeps running while paused, so resume must NOT start a second rAF loop
+addEventListener('message',e=>{try{const m=JSON.parse(e.data);if(m.type==='pause'){if(st==='playing')st='paused';}else if(m.type==='resume'){if(st==='paused'){st='playing';lt=performance.now();}}}catch(e){}});
 
 send('ready',{difficulty:'${diff}',duration:DUR});
 requestAnimationFrame(loop);

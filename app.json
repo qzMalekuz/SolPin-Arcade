@@ -2,7 +2,7 @@
   "expo": {
     "name": "SolPin-Arcade",
     "slug": "solpin-arcade",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "solpin",
@@ -15,15 +15,17 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.solpin.arcade"
+      "bundleIdentifier": "com.solpin.arcade",
+      "buildNumber": "2"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
       "package": "com.solpin.arcade",
-      "targetSdkVersion": 34,
+      "versionCode": 2,
+      "permissions": ["android.permission.INTERNET", "android.permission.VIBRATE"],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -39,10 +41,15 @@
         }
       ]
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "plugins": [
+      "expo-secure-store"
+    ],
+    "updates": {
+      "url": "https://u.expo.dev/c1370071-2395-46a7-a9c4-bed6c60e7549"
     },
-    "plugins": [],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "extra": {
       "eas": {
         "projectId": "c1370071-2395-46a7-a9c4-bed6c60e7549"

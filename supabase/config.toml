@@ -1,0 +1,22 @@
+# Supabase project config. After `supabase link`, the CLI may add fields here.
+project_id = "solpin-arcade"
+
+# Every function does its own wallet-signature auth (HS256 JWT); the
+# platform-level Supabase JWT check is disabled.
+[functions.auth]
+verify_jwt = false
+
+[functions.topup]
+verify_jwt = false
+
+[functions.bet]
+verify_jwt = false
+
+[functions.settle]
+verify_jwt = false
+
+[functions.state]
+verify_jwt = false
+
+[functions.withdraw]
+verify_jwt = false

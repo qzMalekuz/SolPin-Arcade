@@ -15,9 +15,11 @@ export const getSolPrice = async (): Promise<number> => {
         return p;
     } catch {
         try {
-            const r = await fetch('https://price.jup.ag/v6/price?ids=SOL');
+            // price.jup.ag was decommissioned — lite-api is the free replacement
+            const SOL_MINT = 'So11111111111111111111111111111111111111112';
+            const r = await fetch(`https://lite-api.jup.ag/price/v3?ids=${SOL_MINT}`);
             const d = await r.json();
-            const p = d.data.SOL.price as number;
+            const p = d[SOL_MINT].usdPrice as number;
             cache = { usd: p, ts: Date.now() };
             return p;
         } catch {

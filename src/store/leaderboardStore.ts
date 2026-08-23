@@ -1,8 +1,9 @@
 import { create } from 'zustand';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { apiLeaderboard } from '../api/backend';
+import { truncateAddress } from '../solana/phantom';
 
-const STORAGE_KEY = '@solpin_leaderboard_v1';
-const MAX_ENTRIES = 100;
+const LAMPORTS = LAMPORTS_PER_SOL;
 
 export interface LeaderboardEntry {
     id: string;
@@ -18,43 +19,34 @@ interface LeaderboardState {
     entries: LeaderboardEntry[];
     lastUpdated: number;
     isLoading: boolean;
+    loadFailed: boolean;
     load: () => Promise<void>;
-    submit: (entry: Omit<LeaderboardEntry, 'id' | 'timestamp'>) => Promise<void>;
 }
 
-const save = async (entries: LeaderboardEntry[]) => {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-};
-
+// Entries are written server-side when a round is won — the client only reads.
 export const useLeaderboardStore = create<LeaderboardState>((set, get) => ({
     entries: [],
     lastUpdated: 0,
     isLoading: false,
+    loadFailed: false,
 
     load: async () => {
-        set({ isLoading: true });
+        if (get().isLoading) return;
+        set({ isLoading: true, loadFailed: false });
         try {
-            const raw = await AsyncStorage.getItem(STORAGE_KEY);
-            const entries: LeaderboardEntry[] = raw ? JSON.parse(raw) : [];
+            const rows = await apiLeaderboard();
+            const entries: LeaderboardEntry[] = rows.map((row, i) => ({
+                id: `${row.created_at}_${i}`,
+                wallet: truncateAddress(row.wallet, 6),
+                score: row.score,
+                duration: row.duration_secs,
+                difficulty: row.difficulty,
+                reward: row.reward_lamports / LAMPORTS,
+                timestamp: new Date(row.created_at).getTime(),
+            }));
             set({ entries, lastUpdated: Date.now(), isLoading: false });
         } catch {
-            set({ isLoading: false });
+            set({ isLoading: false, loadFailed: true });
         }
-    },
-
-    submit: async (entry) => {
-        const newEntry: LeaderboardEntry = {
-            ...entry,
-            id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            timestamp: Date.now(),
-        };
-
-        const current = get().entries;
-        const updated = [newEntry, ...current]
-            .sort((a, b) => b.score - a.score)
-            .slice(0, MAX_ENTRIES);
-
-        set({ entries: updated, lastUpdated: Date.now() });
-        await save(updated);
     },
 }));

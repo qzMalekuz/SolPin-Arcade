@@ -9,10 +9,13 @@ export type WalletConnectionStatus =
     | 'disconnecting'
     | 'error';
 
+export type WalletProvider = 'phantom' | 'mwa';
+
 export interface WalletSessionState {
     publicKey: PublicKey | null;
     session: string | null;
-    walletName: 'Phantom' | null;
+    walletName: string | null;
+    provider: WalletProvider | null;
 }
 
 interface WalletState extends WalletSessionState {
@@ -33,6 +36,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     publicKey: null,
     session: null,
     walletName: null,
+    provider: null,
     connected: false,
     balance: 0,
     connectionStatus: 'idle',
@@ -44,21 +48,23 @@ export const useWalletStore = create<WalletState>((set, get) => ({
             lastError: null,
         }),
 
-    restoreConnection: ({ publicKey, session, walletName }) =>
+    restoreConnection: ({ publicKey, session, walletName, provider }) =>
         set({
             publicKey,
             session,
             walletName,
+            provider,
             connected: Boolean(publicKey && session),
             connectionStatus: publicKey && session ? 'connected' : 'idle',
             lastError: null,
         }),
 
-    completeConnection: ({ publicKey, session, walletName }) =>
+    completeConnection: ({ publicKey, session, walletName, provider }) =>
         set({
             publicKey,
             session,
             walletName,
+            provider,
             connected: true,
             connectionStatus: 'connected',
             lastError: null,
@@ -82,6 +88,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
             publicKey: null,
             session: null,
             walletName: null,
+            provider: null,
             connected: false,
             balance: 0,
             connectionStatus: 'idle',
@@ -99,7 +106,8 @@ export const useWalletStore = create<WalletState>((set, get) => ({
             const lamports = await getConnection().getBalance(publicKey, 'confirmed');
             set({ balance: lamports / LAMPORTS_PER_SOL });
         } catch {
-            set({ balance: 0 });
+            // RPC hiccup — keep showing the last known balance instead of a
+            // false 0.0000 SOL that looks like an empty wallet.
         }
     },
 }));

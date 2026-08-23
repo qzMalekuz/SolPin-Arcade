@@ -1,5 +1,6 @@
 import { Connection } from '@solana/web3.js';
 import {
+    IS_DEVNET,
     getSolanaNetworkLabel as getClusterLabel,
     type SupportedSolanaCluster,
 } from '../store/networkStore';
@@ -9,15 +10,18 @@ const CONNECTION_CONFIG = {
     confirmTransactionInitialTimeout: 30000,
 };
 
-const RPC_ENDPOINTS: string[] = [
-    'https://api.mainnet-beta.solana.com',
-    'https://solana-mainnet.rpc.extrnode.com',
-    'https://rpc.ankr.com/solana',
-];
+const RPC_ENDPOINTS: string[] = IS_DEVNET
+    ? ['https://api.devnet.solana.com']
+    : [
+          'https://api.mainnet-beta.solana.com',
+          'https://solana-mainnet.rpc.extrnode.com',
+          'https://rpc.ankr.com/solana',
+      ];
 
 let cachedConnection: Connection | null = null;
 
-export const getSolanaCluster = (): SupportedSolanaCluster => 'mainnet-beta';
+export const getSolanaCluster = (): SupportedSolanaCluster =>
+    IS_DEVNET ? 'devnet' : 'mainnet-beta';
 
 export const getRpcEndpoints = (): string[] => RPC_ENDPOINTS;
 
@@ -45,7 +49,7 @@ export const getLatestBlockhashWithFallback = async () => {
             errors.push(`${url}: ${e?.message ?? 'unknown'}`);
         }
     }
-    throw new Error(`All mainnet RPC endpoints failed:\n${errors.join('\n')}`);
+    throw new Error(`All ${getClusterLabel()} RPC endpoints failed:\n${errors.join('\n')}`);
 };
 
-export const getSolanaNetworkLabel = (): 'Mainnet' => getClusterLabel();
+export const getSolanaNetworkLabel = (): 'Mainnet' | 'Devnet' => getClusterLabel();

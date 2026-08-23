@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, StatusBar, Animated, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -11,9 +11,7 @@ import { GlowText } from '../components/GlowText';
 import { AnimatedNumber } from '../components/AnimatedNumber';
 import { useGameStore } from '../store/gameStore';
 import { useInGameWalletStore } from '../store/inGameWalletStore';
-import { useLeaderboardStore } from '../store/leaderboardStore';
-import { useWalletStore } from '../store/walletStore';
-import { truncateAddress } from '../solana/phantom';
+import { ensureAuthedSilently } from '../api/backend';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
@@ -35,40 +33,49 @@ const useFadeInDown = (delay: number = 0) => {
 
 export const ResultScreen: React.FC<Props> = ({ navigation }) => {
     const insets = useSafeAreaInsets();
-    const { status, score, stakeAmount, multiplier, txSignature, duration, difficulty, tutorialMode, resetGame } = useGameStore();
-    const { creditWin, recordLoss, solPrice } = useInGameWalletStore();
-    const { submit: submitLeaderboard } = useLeaderboardStore();
-    const { publicKey } = useWalletStore();
+    const { status, score, stakeAmount, multiplier, duration, difficulty, roundId, resetGame } = useGameStore();
+    const { settleRound } = useInGameWalletStore();
     const isWin = status === 'won';
+    // Server's verdict on the reported outcome — the reward line reflects
+    // what was actually credited, not what the client assumes.
+    const [settleState, setSettleState] = useState<'pending' | 'won' | 'lost' | 'expired' | 'queued' | null>(
+        !roundId ? null : 'pending',
+    );
 
     const headerAnim = useFadeInDown(100);
     const cardAnim = useFadeInDown(300);
     const actionsAnim = useFadeInDown(500);
 
-    // Credit or record outcome exactly once on mount
+    // Report the outcome to the server exactly once on mount. Settling is
+    // idempotent server-side, and a failed report is queued and retried, so
+    // wins survive crashes and dropped connections.
     useEffect(() => {
-        if (tutorialMode) return;
+        if (!roundId) return;
         if (isWin) {
-            const payout = stakeAmount * multiplier;
-            creditWin(payout, stakeAmount, solPrice);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
-            if (publicKey) {
-                void submitLeaderboard({
-                    wallet: truncateAddress(publicKey.toBase58(), 6),
-                    score,
-                    duration,
-                    difficulty,
-                    reward: payout,
-                });
-            }
         } else {
-            recordLoss(stakeAmount, solPrice);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => { });
         }
+        // Re-auth first (silent when the token is valid): without it an
+        // expired/cleared token queues an 'unauthorized' settle that retries
+        // forever, since nothing in the retry path re-authenticates.
+        ensureAuthedSilently()
+            .then(() => settleRound(roundId, isWin, score))
+            .then(setSettleState)
+            .catch(() => setSettleState('queued'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const handlePlayAgain = () => { resetGame(); navigation.replace(tutorialMode ? 'Wallet' : 'Setup'); };
+    const SETTLE_NOTES: Record<string, { text: string; color: string }> = {
+        pending: { text: 'Crediting reward…', color: Colors.textMuted },
+        won: { text: 'Reward credited to your in-game wallet', color: Colors.success },
+        queued: { text: 'Reward will be credited automatically once the connection recovers', color: Colors.textMuted },
+        expired: { text: `The server could not credit this round${roundId ? ` (ref ${roundId.slice(0, 8)})` : ''} — contact support if your balance looks wrong`, color: Colors.danger },
+        lost: { text: 'The server recorded this round as lost — no reward was credited', color: Colors.danger },
+    };
+    const settleNote = isWin && settleState ? SETTLE_NOTES[settleState] : null;
+
+    const handlePlayAgain = () => { resetGame(); navigation.replace('Setup'); };
     const handleHome = () => { resetGame(); navigation.popToTop(); };
 
     return (
@@ -80,9 +87,7 @@ export const ResultScreen: React.FC<Props> = ({ navigation }) => {
                     {isWin ? 'YOU WIN!' : 'GAME OVER'}
                 </GlowText>
                 <GlowText color={Colors.textSecondary} size="body" align="center" glow={0} style={styles.subtext}>
-                    {tutorialMode
-                        ? (isWin ? 'Great job! Connect a wallet to play for real.' : 'Keep practicing! Connect a wallet to play for real.')
-                        : (isWin ? 'You survived the timer! Rewards are yours.' : 'Ball drained before the timer ended.')}
+                    {isWin ? 'You survived the timer! Rewards are yours.' : 'Ball drained before the timer ended.'}
                 </GlowText>
             </Animated.View>
 
@@ -92,47 +97,38 @@ export const ResultScreen: React.FC<Props> = ({ navigation }) => {
                         <GlowText color={Colors.textSecondary} size="body" glow={0}>Score</GlowText>
                         <AnimatedNumber value={score} duration={1000} color={Colors.textPrimary} size="lg" weight="700" />
                     </View>
-                    {tutorialMode ? (
-                        <View style={[styles.statRow, styles.rewardRow]}>
-                            <GlowText color={Colors.textMuted} size="body" glow={0}>MODE</GlowText>
-                            <GlowText color={Colors.textSecondary} size="lg" weight="600" glow={0}>Tutorial</GlowText>
-                        </View>
-                    ) : (
+                    <View style={styles.statRow}>
+                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Stake</GlowText>
+                        <GlowText color={Colors.textPrimary} size="lg" weight="600" glow={0}>{stakeAmount.toFixed(4)} SOL</GlowText>
+                    </View>
+                    <View style={styles.statRow}>
+                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Difficulty</GlowText>
+                        <GlowText color={Colors.textSecondary} size="lg" weight="600" glow={0}>{difficulty.toUpperCase()} / {duration}s</GlowText>
+                    </View>
+
+                    {isWin && (
                         <>
-                            <View style={styles.statRow}>
-                                <GlowText color={Colors.textSecondary} size="body" glow={0}>Stake</GlowText>
-                                <GlowText color={Colors.textPrimary} size="lg" weight="600" glow={0}>{stakeAmount.toFixed(4)} SOL</GlowText>
+                            <View style={[styles.statRow, styles.rewardRow]}>
+                                <GlowText color={Colors.textSecondary} size="body" glow={0}>Multiplier</GlowText>
+                                <GlowText color={Colors.textPrimary} size="lg" weight="700" glow={0}>{multiplier.toFixed(1)}x</GlowText>
                             </View>
-                            <View style={styles.statRow}>
-                                <GlowText color={Colors.textSecondary} size="body" glow={0}>Difficulty</GlowText>
-                                <GlowText color={Colors.textSecondary} size="lg" weight="600" glow={0}>{difficulty.toUpperCase()} / {duration}s</GlowText>
+                            <View style={[styles.statRow, styles.rewardRow]}>
+                                <GlowText color={Colors.success} size="md" weight="700" glow={0}>REWARD</GlowText>
+                                <AnimatedNumber value={stakeAmount * multiplier} duration={1400} decimals={4} suffix=" SOL" color={Colors.success} size="xl" weight="700" />
                             </View>
-
-                            {isWin && (
-                                <>
-                                    <View style={[styles.statRow, styles.rewardRow]}>
-                                        <GlowText color={Colors.textSecondary} size="body" glow={0}>Multiplier</GlowText>
-                                        <GlowText color={Colors.textPrimary} size="lg" weight="700" glow={0}>{multiplier.toFixed(1)}x</GlowText>
-                                    </View>
-                                    <View style={[styles.statRow, styles.rewardRow]}>
-                                        <GlowText color={Colors.success} size="md" weight="700" glow={0}>REWARD</GlowText>
-                                        <AnimatedNumber value={stakeAmount * multiplier} duration={1400} decimals={4} suffix=" SOL" color={Colors.success} size="xl" weight="700" />
-                                    </View>
-                                    {txSignature && (
-                                        <View style={styles.sigContainer}>
-                                            <GlowText color={Colors.textMuted} size="xs" align="center" glow={0}>TX: {txSignature.slice(0, 20)}...</GlowText>
-                                        </View>
-                                    )}
-                                </>
-                            )}
-
-                            {!isWin && (
-                                <View style={[styles.statRow, styles.rewardRow]}>
-                                    <GlowText color={Colors.danger} size="md" weight="700" glow={0}>LOST STAKE</GlowText>
-                                    <GlowText color={Colors.danger} size="xl" weight="700" glow={0}>-{stakeAmount.toFixed(4)} SOL</GlowText>
+                            {settleNote && (
+                                <View style={styles.sigContainer}>
+                                    <GlowText color={settleNote.color} size="xs" align="center" glow={0}>{settleNote.text}</GlowText>
                                 </View>
                             )}
                         </>
+                    )}
+
+                    {!isWin && (
+                        <View style={[styles.statRow, styles.rewardRow]}>
+                            <GlowText color={Colors.danger} size="md" weight="700" glow={0}>LOST STAKE</GlowText>
+                            <GlowText color={Colors.danger} size="xl" weight="700" glow={0}>-{stakeAmount.toFixed(4)} SOL</GlowText>
+                        </View>
                     )}
                 </NeonCard>
             </Animated.View>

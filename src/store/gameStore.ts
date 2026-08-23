@@ -19,11 +19,7 @@ export interface GameState {
 
     // Result
     rewardAmount: number;
-    txSignature: string | null;
-    stakeAccountPda: string | null;
-
-    // Tutorial
-    tutorialMode: boolean;
+    roundId: string | null;
 
     // Sound
     soundEnabled: boolean;
@@ -40,9 +36,7 @@ export interface GameState {
     resetCombo: () => void;
     incrementCombo: () => void;
     setRewardAmount: (amount: number) => void;
-    setTxSignature: (sig: string | null) => void;
-    setStakeAccountPda: (pda: string | null) => void;
-    setTutorialMode: (enabled: boolean) => void;
+    setRoundId: (roundId: string | null) => void;
     toggleSound: () => void;
     resetGame: () => void;
 }
@@ -64,10 +58,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     comboMultiplier: 1,
 
     rewardAmount: 0,
-    txSignature: null,
-    stakeAccountPda: null,
-
-    tutorialMode: false,
+    roundId: null,
 
     soundEnabled: true,
 
@@ -98,9 +89,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             return { comboCount: newCount, comboMultiplier: newMultiplier };
         }),
     setRewardAmount: (amount) => set({ rewardAmount: amount }),
-    setTxSignature: (sig) => set({ txSignature: sig }),
-    setStakeAccountPda: (pda) => set({ stakeAccountPda: pda }),
-    setTutorialMode: (enabled) => set({ tutorialMode: enabled }),
+    setRoundId: (roundId) => set({ roundId }),
     toggleSound: () => set((s) => ({ soundEnabled: !s.soundEnabled })),
     resetGame: () =>
         set((s) => ({
@@ -110,8 +99,6 @@ export const useGameStore = create<GameState>((set, get) => ({
             comboCount: 0,
             comboMultiplier: 1,
             rewardAmount: 0,
-            txSignature: null,
-            stakeAccountPda: null,
-            tutorialMode: false,
+            roundId: null,
         })),
 }));

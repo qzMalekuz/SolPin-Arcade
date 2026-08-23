@@ -27,6 +27,7 @@ import { GlowText } from '../components/GlowText';
 import { useAppModal } from '../components/AppModal';
 import { useGameStore } from '../store/gameStore';
 import { useInGameWalletStore } from '../store/inGameWalletStore';
+import { ensureAuthed } from '../api/backend';
 import type { RootStackParamList } from '../../App';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Setup'>;
@@ -72,9 +73,15 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
         setDifficulty,
         setStatus,
         setTimeRemaining,
+        setRoundId,
     } = useGameStore();
-    const { getBalanceSol, placeBet, solPrice } = useInGameWalletStore();
+    const { getBalanceSol, placeBet, refreshIfAuthed, solPrice } = useInGameWalletStore();
     const [stakeInput, setStakeInput] = useState(stakeAmount.toString());
+    const [placingBet, setPlacingBet] = useState(false);
+
+    useEffect(() => {
+        void refreshIfAuthed();
+    }, []);
 
     const inGameBalance = getBalanceSol();
     const balanceUsd = solPrice > 0 ? inGameBalance * solPrice : null;
@@ -92,7 +99,8 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
     const anim4 = useFadeInDown(50 + Animations.stagger * 4);
     const anim5 = useFadeInDown(50 + Animations.stagger * 5);
 
-    const handleStart = useCallback(() => {
+    const handleStart = useCallback(async () => {
+        if (placingBet) return;
         if (stakeAmount < 0.001) {
             showAlert('Minimum Stake', 'Minimum stake is 0.001 SOL.');
             return;
@@ -110,16 +118,25 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
             return;
         }
 
-        const deducted = placeBet(stakeAmount);
-        if (!deducted) {
-            showAlert('Insufficient Balance', 'Not enough in-game wallet balance.');
-            return;
+        setPlacingBet(true);
+        try {
+            // First game only: the wallet signs a free ownership message
+            await ensureAuthed();
+            // Server deducts the stake and opens the round atomically
+            const roundId = await placeBet(stakeAmount, duration, difficulty);
+            setRoundId(roundId);
+            setTimeRemaining(duration);
+            setStatus('playing');
+            navigation.replace('Game');
+        } catch (err: any) {
+            showAlert('Could Not Start', err?.message ?? 'Something went wrong. Please try again.');
+        } finally {
+            setPlacingBet(false);
         }
-
-        setTimeRemaining(duration);
-        setStatus('playing');
-        navigation.replace('Game');
-    }, [stakeAmount, inGameBalance, placeBet, duration, navigation, setStatus, setTimeRemaining]);
+    }, [
+        placingBet, stakeAmount, inGameBalance, placeBet, duration, difficulty,
+        navigation, setRoundId, setStatus, setTimeRemaining,
+    ]);
 
     return (
         <ScrollView
@@ -264,9 +281,10 @@ export const SetupScreen: React.FC<Props> = ({ navigation }) => {
 
             <Animated.View style={anim5}>
                 <NeonButton
-                    title="Start Game"
-                    onPress={handleStart}
-                    disabled={!canStart}
+                    title={placingBet ? 'Placing Bet…' : 'Start Game'}
+                    onPress={() => { void handleStart(); }}
+                    disabled={!canStart || placingBet}
+                    loading={placingBet}
                     variant="primary"
                     size="lg"
                     style={styles.startBtn}

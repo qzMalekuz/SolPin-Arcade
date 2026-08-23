@@ -4,6 +4,7 @@ import {
     StyleSheet,
     StatusBar,
     BackHandler,
+    AppState,
     Platform,
     Animated,
     Easing,
@@ -24,7 +25,7 @@ import type { RootStackParamList } from '../../App';
 type Props = NativeStackScreenProps<RootStackParamList, 'Game'>;
 
 export const GameScreen: React.FC<Props> = ({ navigation }) => {
-    const { duration, difficulty, stakeAmount, multiplier, tutorialMode, setScore, setStatus } = useGameStore();
+    const { duration, difficulty, stakeAmount, multiplier, setScore, setStatus } = useGameStore();
     const { show: showModal } = useAppModal();
 
     const webviewRef = useRef<WebView>(null);
@@ -34,6 +35,21 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
     const [paused, setPaused] = useState(false);
     const [launched, setLaunched] = useState(false);
     const [gameReady, setGameReady] = useState(false);
+    // Once the engine has decided the round, pause/quit must not overwrite
+    // the outcome (e.g. reflexive back-press as the timer expires turning a
+    // won round into a lost stake during the 800ms pre-navigation window).
+    const gameOverRef = useRef(false);
+
+    // Pausing (or backgrounding — the OS suspends the engine either way)
+    // freezes the ball while the server keeps counting wall time, so with
+    // unlimited pause a player could dodge every drain one pause at a time.
+    // Total frozen time per round is budgeted; when it runs out the game
+    // auto-resumes. ponytail: client-side only — a modified client bypasses
+    // this, but a modified client can fake the outcome outright anyway.
+    const PAUSE_BUDGET_MS = 90_000;
+    const pauseBudgetRef = useRef(PAUSE_BUDGET_MS);
+    const pauseStartRef = useRef<number | null>(null);
+    const autoResumeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Pause overlay animation
     const pauseOpacity = useRef(new Animated.Value(0)).current;
@@ -85,6 +101,7 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
                 case 'launched': setLaunched(true); break;
                 case 'haptic': triggerHaptic(msg.level || 'light'); break;
                 case 'gameover':
+                    gameOverRef.current = true;
                     triggerHaptic(msg.result === 'lost' ? 'heavy' : 'medium');
                     setScore(msg.score);
                     setStatus(msg.result === 'won' ? 'won' : 'lost');
@@ -100,16 +117,35 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
         );
     }, []);
 
-    const handlePause = useCallback(() => { setPaused(true); sendToGame({ type: 'pause' }); }, [sendToGame]);
-    const handleResume = useCallback(() => { setPaused(false); sendToGame({ type: 'resume' }); }, [sendToGame]);
+    const handleResume = useCallback(() => {
+        if (autoResumeRef.current) { clearTimeout(autoResumeRef.current); autoResumeRef.current = null; }
+        if (pauseStartRef.current !== null) {
+            pauseBudgetRef.current -= Date.now() - pauseStartRef.current;
+            pauseStartRef.current = null;
+        }
+        setPaused(false);
+        if (!gameOverRef.current) sendToGame({ type: 'resume' });
+    }, [sendToGame]);
+
+    const handlePause = useCallback(() => {
+        if (gameOverRef.current || pauseStartRef.current !== null) return;
+        pauseStartRef.current = Date.now();
+        autoResumeRef.current = setTimeout(handleResume, Math.max(pauseBudgetRef.current, 0));
+        setPaused(true);
+        sendToGame({ type: 'pause' });
+    }, [sendToGame, handleResume]);
+
+    // Backgrounding suspends the engine mid-flight — a free, invisible pause.
+    // Route it through the same budgeted pause so it counts and shows PAUSED.
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (state) => {
+            if (state !== 'active') handlePause();
+        });
+        return () => { sub.remove(); if (autoResumeRef.current) clearTimeout(autoResumeRef.current); };
+    }, [handlePause]);
 
     const handleQuit = useCallback(() => {
-        if (tutorialMode) {
-            setStatus('lost');
-            setScore(score);
-            navigation.replace('Result');
-            return;
-        }
+        if (gameOverRef.current) return;
         showModal({
             title: 'Quit Game',
             message: 'You will lose your stake.',
@@ -119,7 +155,7 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
                 { text: 'Quit', style: 'destructive', onPress: () => { setStatus('lost'); setScore(score); navigation.replace('Result'); } },
             ],
         });
-    }, [handleResume, setStatus, setScore, score, navigation, tutorialMode]);
+    }, [handleResume, setStatus, setScore, score, navigation]);
 
     const formatTime = useCallback((s: number) => {
         const m = Math.floor(s / 60);
@@ -172,14 +208,14 @@ export const GameScreen: React.FC<Props> = ({ navigation }) => {
                     <Animated.View style={{ transform: [{ translateY: pauseSlide }] }}>
                         <GlowText color="#f2f2f2" size="hero" align="center" weight="700" glow={1}>PAUSED</GlowText>
                         <GlowText color="#666" size="body" align="center" glow={0} style={styles.pauseSub}>
-                            {tutorialMode ? 'Tutorial Mode • No stake' : `${stakeAmount} SOL staked • ${(stakeAmount * multiplier).toFixed(3)} SOL to win`}
+                            {`${stakeAmount} SOL staked • ${(stakeAmount * multiplier).toFixed(3)} SOL to win`}
                         </GlowText>
                         <View style={styles.pauseScoreBox}>
                             <GlowText color="#f2f2f2" size="xl" weight="700" align="center" glow={0}>{score.toLocaleString()}</GlowText>
                             <GlowText color="#555" size="xs" align="center" glow={0}>POINTS</GlowText>
                         </View>
                         <NeonButton title="Resume" onPress={handleResume} variant="primary" size="lg" style={styles.pauseAction} />
-                        <NeonButton title={tutorialMode ? 'Quit' : 'Quit (Lose Stake)'} onPress={handleQuit} variant="danger" size="md" style={styles.pauseAction} />
+                        <NeonButton title="Quit (Lose Stake)" onPress={handleQuit} variant="danger" size="md" style={styles.pauseAction} />
                     </Animated.View>
                 </Animated.View>
             )}
