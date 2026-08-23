@@ -2,7 +2,7 @@
   "expo": {
     "name": "SolPin-Arcade",
     "slug": "solpin-arcade",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "solpin",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.solpin.arcade",
-      "buildNumber": "2"
+      "buildNumber": "3"
     },
     "android": {
       "adaptiveIcon": {
@@ -24,8 +24,11 @@
         "backgroundColor": "#000000"
       },
       "package": "com.solpin.arcade",
-      "versionCode": 2,
-      "permissions": ["android.permission.INTERNET", "android.permission.VIBRATE"],
+      "versionCode": 3,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.VIBRATE"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
