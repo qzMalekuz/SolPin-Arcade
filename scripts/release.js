@@ -36,4 +36,4 @@ run(`git commit -m "v${v}"`);
 run(`git tag -a v${v} -m ${JSON.stringify(notes)}`);
 run('git push origin main --tags');
 
-console.log(`\nReleased v${v}. GitHub Actions is now building and submitting to the dApp Store.`);
+console.log(`\nReleased v${v}. GitHub Actions is building the APK; when it finishes, run: npm run submit -- "notes"`);
